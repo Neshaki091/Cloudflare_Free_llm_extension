@@ -1,0 +1,59 @@
+{
+  "name": "nescode-spike",
+  "displayName": "NesCode Compatibility Spike",
+  "description": "Compatibility Spike Extension verifying Antigravity IDE Extension Host capabilities",
+  "version": "0.1.0",
+  "publisher": "nescode",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "nescode.spikeCheck",
+        "title": "NesCode Spike: Run Diagnostic Checks",
+        "category": "NesCode"
+      },
+      {
+        "command": "nescode.helloWorld",
+        "title": "NesCode: Hello World",
+        "category": "NesCode"
+      },
+      {
+        "command": "nescode.spikeSecretTest",
+        "title": "NesCode Spike: Test SecretStorage",
+        "category": "NesCode"
+      },
+      {
+        "command": "nescode.spikeContextTest",
+        "title": "NesCode Spike: Test Workspace Context",
+        "category": "NesCode"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "nescode-spike-activitybar",
+          "title": "NesCode Spike",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "nescode-spike-activitybar": [
+        {
+          "type": "webview",
+          "id": "nescode.spikeView",
+          "name": "Kiểm Chứng Tương Thích"
+        }
+      ]
+    }
+  }
+}

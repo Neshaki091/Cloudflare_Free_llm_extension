@@ -12,6 +12,7 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "build": "npm run build --workspaces --if-present",
+    "package:spike": "powershell -ExecutionPolicy Bypass -File ./scripts/package-spike.ps1",
     "package:extension": "npm run package --workspace=src/extension --if-present",
     "deploy:worker": "npm run deploy --workspace=src/worker --if-present"
   },
