@@ -1,0 +1,6 @@
+# File mẫu biến môi trường cho Cloudflare Worker cục bộ (Wrangler dev)
+# Đổi tên file này thành ".dev.vars" tại thư mục src/worker/ khi chạy kiểm thử cục bộ.
+# TUYỆT ĐỐI KHÔNG COMMIT FILE .dev.vars LÊN GIT!
+
+# Khóa Bearer API key thử nghiệm cho môi trường cục bộ (tối thiểu 16 ký tự ngẫu nhiên)
+NESCODE_API_KEY="your-local-dev-api-key-do-not-use-in-production"

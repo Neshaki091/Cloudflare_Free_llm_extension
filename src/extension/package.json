@@ -1,0 +1,24 @@
+{
+  "name": "nescode-antigravity",
+  "displayName": "NesCode for Antigravity",
+  "description": "AI Coding Assistant extension for Antigravity IDE powered by Cloudflare Workers AI",
+  "version": "0.1.0-alpha.0",
+  "publisher": "nescode",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "AI",
+    "Programming Languages",
+    "Machine Learning"
+  ],
+  "main": "./dist/extension.js",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "node esbuild.js",
+    "package": "vsce package --out ../../build/"
+  },
+  "dependencies": {
+    "@nescode/shared": "*"
+  }
+}

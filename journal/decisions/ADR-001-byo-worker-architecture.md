@@ -1,0 +1,21 @@
+# ADR-001: Kiến Trúc Bring Your Own Cloudflare Worker (BYO Worker) Trên Tầng Miễn Phí
+
+- Status: Accepted
+- Date: 2026-11-11
+- Context:
+  - Dự án NesCode cần cung cấp năng lực AI trợ lý lập trình cho người dùng Antigravity IDE thông qua Cloudflare Workers AI.
+  - Nếu tác giả extension triển khai một backend máy chủ tập trung (Centralized SaaS backend), tác giả sẽ phải chịu toàn bộ chi phí suy luận (inference cost) và rủi ro pháp lý/bảo mật khi lưu lượng mã nguồn của cộng đồng đi qua máy chủ của tác giả.
+  - Ngược lại, Cloudflare cung cấp gói Workers Free (100k requests/ngày) và Workers AI Free allocation (10.000 Neurons/ngày) cho từng tài khoản cá nhân.
+- Decision:
+  - Chọn mô hình **Bring Your Own Cloudflare Worker (BYO Worker)** làm mô hình phát hành mặc định cho MVP.
+  - Dự án cung cấp sẵn mã nguồn backend Cloudflare Worker trong `src/worker/` kèm hướng dẫn triển khai một chạm bằng Wrangler CLI.
+  - Mỗi người dùng tự deploy Worker trên tài khoản Cloudflare Free của chính mình và nhập URL + Bearer API Key vào extension.
+  - Extension chỉ lưu trữ Worker API Key trong `SecretStorage` của IDE, tuyệt đối không lưu hay yêu cầu Cloudflare Account API Token.
+- Alternatives:
+  - *Giải pháp 1: Backend tập trung (Centralized Backend).* Bị loại bỏ vì phát sinh chi phí vận hành cho tác giả, rủi ro bảo mật dữ liệu người dùng và nguy cơ nghẽn hạn ngạch dùng chung.
+  - *Giải pháp 2: Gọi trực tiếp Cloudflare REST API từ Extension.* Bị loại bỏ vì yêu cầu người dùng phải nhúng Cloudflare Account API Token vào Extension — điều này vi phạm nghiêm trọng nguyên tắc an toàn thông tin (NFR-SEC-003).
+- Consequences:
+  - *Tích cực:* Đảm bảo tính bảo mật và quyền riêng tư tuyệt đối (mã nguồn chỉ đi từ máy người dùng tới Worker của chính họ); hạn ngạch AI thuộc về từng tài khoản cá nhân; chi phí vận hành phía tác giả là 0 đồng.
+  - *Thỏa hiệp:* Người dùng cần có tài khoản Cloudflare và thực hiện thao tác deploy Worker qua lệnh Wrangler theo hướng dẫn (cần tài liệu DEPLOYMENT.md thật chi tiết và dễ hiểu).
+- Related SRS:
+  - Mục 1.7, 2.4, 9.4, 9.5, NFR-SEC-003, NFR-SEC-004.

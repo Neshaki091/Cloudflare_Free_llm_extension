@@ -1,0 +1,26 @@
+{
+  "name": "nescode-antigravity",
+  "version": "0.1.0-alpha.0",
+  "private": true,
+  "description": "AI Coding Assistant extension for Antigravity IDE powered by Cloudflare Workers AI",
+  "workspaces": [
+    "src/extension",
+    "src/worker",
+    "src/shared"
+  ],
+  "scripts": {
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present",
+    "package:extension": "npm run package --workspace=src/extension --if-present",
+    "deploy:worker": "npm run deploy --workspace=src/worker --if-present"
+  },
+  "keywords": [
+    "antigravity",
+    "vscode-extension",
+    "cloudflare-workers-ai",
+    "ai-assistant"
+  ],
+  "author": "NesCode Team",
+  "license": "MIT"
+}
