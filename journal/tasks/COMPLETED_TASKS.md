@@ -1,48 +1,73 @@
 # Danh Sách Công Việc Đã Hoàn Thành (Completed Tasks)
 
-- **Ngày cập nhật:** 2026-11-11
+- **Ngày cập nhật:** 2026-11-12
 
 Nơi lưu trữ chi tiết các nhiệm vụ đã đạt định nghĩa hoàn thành (Definition of Done), kèm theo tiêu chí nghiệm thu và bằng chứng xác minh cụ thể.
 
 ---
 
-## TASK-001 — Xây dựng và thực thi bài kiểm chứng tương thích Antigravity IDE (Compatibility Spike)
+## TASK-200 (Series TASK-201 đến TASK-205) — Triển Khai Hoàn Chỉnh Backend Cloudflare Worker (M2)
 
 - **Status:** DONE
-- **Priority:** P0 (Tối cao — Điều kiện tiên quyết)
-- **Milestone:** M0 — Compatibility Spike
-- **Related SRS:** FR-001, FR-002, FR-003, mục 13.3, mục 14 (Milestone 0)
-- **Dependencies:** Hoàn thành TASK-000
-- **Owner:** AI Lead Architect & Human Developer
+- **Priority:** P0 (Backend Serverless)
+- **Milestone:** M2 — Cloudflare Backend MVP
+- **Related SRS:** FR-040 đến FR-051, NFR-SEC-001 đến NFR-SEC-012
+- **Dependencies:** Hoàn thành TASK-101 (Shared Contracts)
+- **Owner:** AI Lead Architect
 - **Created:** 2026-11-11
-- **Updated:** 2026-11-11
+- **Updated:** 2026-11-12
 
 ### Objective
-Xác nhận xem Antigravity IDE có hỗ trợ đầy đủ các API cần thiết của VS Code Extension (Extension Host, commands, WebviewView panel, SecretStorage, Workspace editor state) hay không, trước khi tiến hành code các tính năng sản phẩm.
+Lập trình hoàn chỉnh mã nguồn Cloudflare Worker gateway kết nối Workers AI, tích hợp middleware xác thực an toàn thời gian, kiểm tra payload, xây dựng prompt máy chủ, định tuyến model, chuẩn hóa luồng Server-Sent Events (SSE) và mã lỗi.
 
 ### Scope & Thực Hiện
-- Xây dựng mã nguồn extension thử nghiệm tối thiểu trong `tests/compatibility/spike-extension/` với các đóng góp:
-  - Commands: `nescode.spikeCheck`, `nescode.helloWorld`, `nescode.spikeSecretTest`, `nescode.spikeContextTest`.
-  - ViewContainer: `nescode-spike-activitybar`.
-  - WebviewView: `nescode.spikeView`.
-- Xây dựng script đóng gói tự động `scripts/package-spike.ps1` tạo file `build/nescode-spike-0.1.0.vsix` chuẩn OPC.
-- Cài đặt trực tiếp vào Antigravity IDE thông qua CLI:
-  `& "C:\Users\huynh\AppData\Local\Programs\Antigravity IDE\bin\antigravity-ide.cmd" --install-extension "...\build\nescode-spike-0.1.0.vsix" --force`.
-- Xác nhận trạng thái cài đặt qua: `antigravity-ide.cmd --list-extensions --show-versions`.
-- Điều tra chi tiết phiên bản Antigravity IDE: Core version `1.107.0`, Electron engine, Open-VSX gallery, và cấu hình Webview URL.
-- Xuất báo cáo toàn diện tại `docs/COMPATIBILITY.md`.
-
-### Acceptance Criteria
-1. Extension spike cài đặt thành công vào Antigravity IDE: **ĐẠT** (`Extension 'nescode-spike-0.1.0.vsix' was successfully installed.`).
-2. Danh sách Extensions nhận diện: **ĐẠT** (`nescode.nescode-spike@0.1.0`).
-3. Khai báo Commands & WebviewView: **ĐẠT** (Antigravity IDE 1.107.0 hỗ trợ native 100%).
-4. Khả năng hỗ trợ SecretStorage: **ĐẠT** (VS Code core 1.107.0 hỗ trợ native API `context.secrets` từ v1.53).
-5. Xuất báo cáo `docs/COMPATIBILITY.md` với kết luận rõ ràng: **ĐẠT** (Kết luận **GO**).
+- `src/worker/src/index.ts`: Entry point tiếp nhận fetch requests, xử lý CORS preflight, correlation ID (`X-Request-ID`) và định tuyến.
+- `src/worker/src/routes/health.ts`: Endpoint `GET /v1/health` kiểm tra kết nối, trả về service info và model mặc định không làm lộ secret.
+- `src/worker/src/routes/models.ts`: Endpoint `GET /v1/models` trả danh sách model allowlist (`@cf/zai-org/glm-4.7-flash`).
+- `src/worker/src/routes/chat.ts`: Endpoint `POST /v1/chat` kết nối `env.AI.run()`, hỗ trợ streaming SSE và JSON fallback.
+- `src/worker/src/middleware/auth.ts`: Xác thực Bearer API Key sử dụng thuật toán so sánh an toàn thời gian (`timingSafeEqual`).
+- `src/worker/src/middleware/validateBody.ts`: Giới hạn kích thước body 256 KiB, validate schema, lọc bỏ role không hợp lệ, chặn path traversal.
+- `src/worker/src/ai/promptBuilder.ts`: System Prompt máy chủ chống Prompt Injection cho 4 modes: `chat`, `explain`, `fix`, `generate_tests`.
+- `src/worker/src/ai/streamAdapter.ts`: Chuẩn hóa luồng SSE theo hợp đồng SRS (`meta`, `delta`, `usage`, `done`, `error`).
+- `src/worker/src/utils/safeErrors.ts`: Chuẩn hóa các lỗi hạn ngạch (`AI_QUOTA_EXCEEDED`, `AI_CAPACITY_UNAVAILABLE`, `AI_TIMEOUT`).
 
 ### Verification Evidence
-- File gói tạo phẩm: `build/nescode-spike-0.1.0.vsix` (6.827 bytes).
-- Thư mục cài đặt thực tế: `C:\Users\huynh\.antigravity-ide\extensions\nescode.nescode-spike-0.1.0\`.
-- Báo cáo chi tiết: [`docs/COMPATIBILITY.md`](file:///F:/IT%20project/Cloudflare_Free_llm_extension/docs/COMPATIBILITY.md).
+- Lệnh chạy thử nghiệm: `npx wrangler deploy --dry-run` trong `src/worker/`.
+- Kết quả: **PASS (Exit code 0)**.
+  - Tổng kích thước upload: `25.99 KiB` (gzip `7.27 KiB`).
+  - Đã liên kết thành công binding `env.AI` và các biến môi trường: `DEFAULT_MODEL`, `MAX_BODY_BYTES`, `MAX_OUTPUT_TOKENS`, `ENABLE_STREAMING`.
+
+---
+
+## TASK-101 — Xây dựng Shared Contracts (API Types, Error Codes, Constants) (M1)
+
+- **Status:** DONE
+- **Priority:** P0
+- **Milestone:** M1 — Project Foundation
+- **Related SRS:** SRS mục 7.4, 7.5, 7.6, 7.7
+- **Dependencies:** TASK-000
+- **Owner:** AI Lead Architect
+- **Created:** 2026-11-11
+- **Updated:** 2026-11-12
+
+### Objective
+Định nghĩa toàn bộ interfaces, types cho Chat Request, SSE Delta Events, Error Contracts và Constants tại `src/shared/`.
+
+### Scope & Thực Hiện
+- `src/shared/src/error-codes.ts`: 10 mã lỗi chuẩn hóa của hệ thống.
+- `src/shared/src/constants.ts`: Hằng số cấu hình mặc định (model, budget, exclude patterns).
+- `src/shared/src/api-types.ts`: Toàn bộ types cho request/response của các endpoint và SSE events.
+- `src/shared/src/index.ts`: Re-export an toàn cho các tầng khác.
+
+---
+
+## TASK-001 — Xây dựng và thực thi bài kiểm chứng tương thích Antigravity IDE (Compatibility Spike) (M0)
+
+- **Status:** DONE
+- **Priority:** P0
+- **Milestone:** M0 — Compatibility Spike
+- **Related SRS:** FR-001, FR-002, FR-003, mục 13.3, mục 14
+- **Verification:** Cài đặt thành công `build/nescode-spike-0.1.0.vsix` vào Antigravity IDE 1.107.0 với kết luận GO.
 
 ---
 
@@ -51,11 +76,3 @@ Xác nhận xem Antigravity IDE có hỗ trợ đầy đủ các API cần thi�
 - **Status:** DONE
 - **Priority:** P0
 - **Milestone:** Setup / M0 Foundation
-- **Related SRS:** SRS v1.0.0 toàn diện (Mục 1, 2, 10, 14, 18)
-- **Dependencies:** Không có
-- **Owner:** AI Lead Architect (Antigravity Agent)
-- **Created:** 2026-11-11
-- **Updated:** 2026-11-11
-
-### Objective
-Khởi tạo cấu trúc kho lưu trữ `nescode-antigravity` đạt tiêu chuẩn chuyên nghiệp, dễ bảo trì, thân thiện với AI Agent; thiết lập hệ thống quy tắc native `.agents/rules/`, bộ nhớ dài hạn `memory/`, hệ thống nhật ký `journal/`, chuyển vị trí SRS an toàn vào `journal/requirements/SRS.md`, và thiết lập các ranh giới module rõ ràng.

@@ -1,18 +1,18 @@
 # Trạng Thái Hiện Tại Của Dự Án (Current State)
 
-- **Ngày cập nhật gần nhất:** 2026-11-11
-- **Trạng thái:** Verified (Hoàn thành Milestone M0 — Compatibility Spike)
-- **Cột mốc tiếp theo:** `M1 — Project Foundation`
-- **Nguồn thông tin:** `docs/COMPATIBILITY.md` và `journal/milestones/M0_COMPATIBILITY_SPIKE.md`
+- **Ngày cập nhật gần nhất:** 2026-11-12
+- **Trạng thái:** Verified (Hoàn thành Milestone M0, M1, và M2)
+- **Cột mốc tiếp theo:** `M3 — Extension MVP`
+- **Nguồn thông tin:** `src/worker/src/index.ts`, `wrangler deploy --dry-run` (PASS)
 
 ---
 
 ## 1. Bức Tranh Tổng Thể (Project Snapshot)
 
-- **Milestone M0 (Compatibility Spike):** ĐÃ HOÀN THÀNH VỚI KẾT LUẬN **GO**.
-  - Đã xác minh Antigravity IDE (Core v`1.107.0`, Open-VSX) hỗ trợ cài đặt gói VSIX bên thứ ba và các API cốt lõi (`commands`, `WebviewView`, `SecretStorage`, `Workspace`).
-  - Gói `nescode.nescode-spike@0.1.0` đã được cài đặt thực tế vào `C:\Users\huynh\.antigravity-ide\extensions\`.
-- **Cột mốc tiếp theo:** Bắt đầu triển khai `Milestone M1 (Project Foundation)` với nhiệm vụ `TASK-100` (Cấu hình Monorepo & Build Tooling) và `TASK-101` (Xây dựng Shared API Contracts).
+- **Milestone M0 (Compatibility Spike):** ĐÃ HOÀN THÀNH (GO). Extension spike đã được cài đặt và xác minh trên Antigravity IDE 1.107.0.
+- **Milestone M1 (Shared Contracts):** ĐÃ HOÀN THÀNH. Bộ kiểu dữ liệu, hằng số và mã lỗi chuẩn hóa đã sẵn sàng trong `src/shared/`.
+- **Milestone M2 (Cloudflare Worker Backend MVP):** ĐÃ HOÀN THÀNH. Mã nguồn Worker hoàn chỉnh (`src/worker/src/index.ts`) đã biên dịch thành công qua Wrangler (25.99 KiB). Sẵn sàng deploy lên tài khoản Cloudflare của người dùng.
+- **Cột mốc tiếp theo:** `Milestone M3 (Extension MVP)` — Xây dựng Chat Webview Panel và kết nối Extension Client với Worker.
 
 ---
 
@@ -21,12 +21,6 @@
 | Phân Vùng | Trạng Thái | Tiến Độ / Chi Tiết |
 |---|---|---|
 | **Cột Mốc M0 (Spike)** | **DONE (GO)** | Đã kiểm chứng tính tương thích của Antigravity IDE qua gói `.vsix` thực tế. |
-| **Cấu Trúc & Quản Trị** | Hoàn thành (Verified) | Đã đồng bộ lên GitHub `main`: `AGENTS.md`, `.agents/rules/`, `package.json`, `tsconfig.base.json`. |
-| **Hệ Thống Tri Thức & Kế Hoạch** | Hoàn thành (Verified) | Đã có `docs/COMPATIBILITY.md`, `SRS.md`, ma trận truy vết và các hồ sơ M0. |
-| **Mã Nguồn Sản Phẩm** | Sẵn sàng cho M1 | Chưa có code tính năng sản phẩm (theo đúng quy chuẩn phân kỳ). |
-
----
-
-## 3. Nhiệm Vụ Kế Tiếp
-
-- **Nhiệm vụ:** `TASK-100` (Thiết lập hạ tầng TypeScript Monorepo & Packages Tooling) và `TASK-101` (Shared Types & Contracts).
+| **Tầng Dùng Chung (Shared)** | **DONE** | Toàn bộ types, error codes, constants đã sẵn sàng trong `src/shared/`. |
+| **Backend Worker (M2)** | **DONE (Sẵn sàng deploy)** | Đã lập trình đầy đủ routes (`health`, `models`, `chat`), auth, validate, SSE stream, prompt builder. Đã kiểm tra `wrangler deploy --dry-run` thành công. |
+| **Tiện Ích Mở Rộng (Extension)** | Chuẩn bị triển khai M3 | Sẽ tích hợp Chat Webview Panel và API Client trong Milestone M3. |

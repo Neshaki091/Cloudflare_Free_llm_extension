@@ -1,47 +1,32 @@
 # Bảng Công Việc Hiện Tại (Task Board)
 
-- **Ngày cập nhật:** 2026-11-11
-- **Cột mốc:** Hoàn thành `M0 — Compatibility Spike` ➔ Chuyển giao sang `M1 — Project Foundation`
+- **Ngày cập nhật:** 2026-11-12
+- **Cột mốc:** Đã hoàn thành `M1 (Shared Contracts)` & `M2 (Cloudflare Worker Backend MVP)`
 
 Bảng công việc tập trung vào các nhiệm vụ đang kích hoạt (`IN_PROGRESS`) và các nhiệm vụ sẵn sàng thực hiện kế tiếp (`TODO`).
 
 ---
 
-## 1. Nhiệm Vụ Đang Kích Hoạt / Kế Tiếp (Active / Next)
+## 1. Nhiệm Vụ Kế Tiếp (Milestone M3 — Extension MVP)
 
-### TASK-100 — Thiết lập hạ tầng TypeScript Monorepo và Packages Tooling
-- **Status:** TODO (Sẵn sàng thực hiện cho Milestone M1)
-- **Priority:** P0 (Nền tảng dự án)
-- **Milestone:** M1 — Project Foundation
-- **Related SRS:** SRS mục 10.1, 10.2
-- **Dependencies:** Hoàn thành TASK-001 (Kết luận GO từ Compatibility Spike)
+### TASK-301 — Xây dựng Chat Webview Provider với Content Security Policy
+- **Status:** TODO (Sẵn sàng triển khai)
+- **Priority:** P0 (Giao diện Extension)
+- **Milestone:** M3 — Extension MVP
+- **Related SRS:** FR-010, FR-011, FR-012, FR-013, FR-014, NFR-SEC-007
+- **Dependencies:** Hoàn thành M0, M1, M2
 - **Owner:** AI Lead Architect
 - **Created:** 2026-11-11
-- **Updated:** 2026-11-11
+- **Updated:** 2026-11-12
+- **Objective:** Tích hợp Chat Webview Panel vào thanh bên Antigravity IDE, hỗ trợ hiển thị Markdown, code blocks, streaming thời gian thực, nút Cancel và quản lý trạng thái kết nối.
 
-#### Objective
-Cấu hình hoàn chỉnh npm workspaces, cài đặt dev dependencies nền tảng (`typescript`, `@types/vscode`, `esbuild`, `vitest`), thiết lập cấu hình tsconfig cho từng workspace và chuẩn bị script build cho toàn dự án.
-
-#### Scope
-- Cài đặt dependencies cho `src/extension`, `src/worker`, `src/shared`.
-- Kiểm tra `npm run typecheck` trên toàn bộ workspaces.
-- Thiết lập kịch bản build với `esbuild`.
-
-#### Acceptance Criteria
-1. Lệnh `npm run typecheck` chạy qua toàn bộ workspaces mà không có lỗi.
-2. Build script biên dịch thành công mã nguồn ra thư mục `build/`.
-
----
-
-## 2. Nhiệm Vụ Tiếp Theo Trong M1 (Upcoming Tasks)
-
-### TASK-101 — Xây dựng Shared Contracts (API Types, Error Codes, Constants)
+### TASK-302 — Quản Lý Secret và Cấu Hình Kết Nối Worker
 - **Status:** TODO
 - **Priority:** P0
-- **Milestone:** M1 — Project Foundation
-- **Related SRS:** SRS mục 7.4, 7.5, 7.6, 7.7
-- **Dependencies:** TASK-100
-- **Owner:** AI Agent
+- **Milestone:** M3 — Extension MVP
+- **Related SRS:** FR-005, FR-006, FR-060, NFR-SEC-002
+- **Dependencies:** TASK-301
+- **Owner:** AI Lead Architect
 - **Created:** 2026-11-11
-- **Updated:** 2026-11-11
-- **Objective:** Định nghĩa toàn bộ interfaces, types cho Chat Request, SSE Delta Events, Error Contracts và Constants tại `src/shared/`.
+- **Updated:** 2026-11-12
+- **Objective:** Tích hợp `SecretStorage` (`context.secrets`) để lưu trữ an toàn Worker Bearer API Key và cấu hình URL Worker.
