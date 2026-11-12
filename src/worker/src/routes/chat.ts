@@ -114,3 +114,4 @@ export async function handleChat(
     return errorResponse(requestId, detail.code, detail.message, status, detail.retryable);
   }
 }
+

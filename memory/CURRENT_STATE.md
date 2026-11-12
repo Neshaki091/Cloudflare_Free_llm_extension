@@ -12,9 +12,10 @@
 - **Backend Cloudflare Worker (M2):** ĐÃ TRIỂN KHAI THÀNH CÔNG trên Cloudflare Edge:
   - URL: `https://nescode-ai-gateway.neshaki-ai-cloudflare.workers.dev`
   - Đã xác minh phản hồi an toàn từ Cloudflare Edge.
-- **Tiện Ích Mở Rộng Extension MVP (M3):** ĐÃ HOÀN THÀNH VÀ CÀI ĐẶT:
+- **Tiện Ích Mở Rộng Extension MVP (M3):** ĐÃ HOÀN THÀNH, TÍCH HỢP MULTI-SESSION THEO TỪNG DỰ ÁN VÀ CÀI ĐẶT:
   - Đã lập trình đầy đủ mã nguồn `src/extension/` (Webview Chat Panel, WorkerClient, SecretManager, commands).
-  - Đã đóng gói thành file VSIX chính thức: `build/nescode-antigravity-0.1.0.vsix` (16.537 bytes).
+  - Tích hợp `SessionManager` lưu trữ cục bộ trong `context.workspaceState`: Mỗi workspace/dự án có danh sách các phiên chat độc lập, hỗ trợ tạo phiên mới, chuyển đổi phiên, xóa phiên và đặt tên thông minh từ câu hỏi đầu tiên. Dữ liệu lưu 100% cục bộ, không gửi ra ngoài.
+  - Đã đóng gói thành file VSIX chính thức: `build/nescode-antigravity-0.1.0.vsix` (19.595 bytes).
   - Đã cài đặt thực tế vào Antigravity IDE: hiển thị `nescode.nescode-antigravity@0.1.0` trong danh sách tiện ích mở rộng đã cài đặt.
 - **Cột mốc tiếp theo:** `Milestone M4 (Context Engineering)` — Hoàn thiện tính năng chọn file nâng cao (Context Picker), lọc bảo mật tự động và kiểm soát ngân sách token (Context Budgeter).
 

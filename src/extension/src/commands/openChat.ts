@@ -5,3 +5,4 @@ export function registerOpenChatCommand(): vscode.Disposable {
     await vscode.commands.executeCommand('nescode.chatView.focus');
   });
 }
+

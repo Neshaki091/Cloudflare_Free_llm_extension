@@ -9,10 +9,10 @@ $staging = Join-Path $buildDir "staging-extension"
 $vsixPath = Join-Path $buildDir "nescode-antigravity-0.1.0.vsix"
 $zipPath = Join-Path $buildDir "nescode-antigravity-0.1.0.zip"
 
-Write-Host "[NesCode] Bắt đầu build mã nguồn Extension..."
+Write-Host "[NesCode] Bat dau build ma nguon Extension..."
 node (Join-Path $rootDir "scripts\build-extension.mjs")
 
-Write-Host "[NesCode] Đóng gói Extension thành VSIX..."
+Write-Host "[NesCode] Dong goi Extension thanh VSIX..."
 
 if (-not (Test-Path $buildDir)) {
     New-Item -ItemType Directory -Path $buildDir -Force | Out-Null
@@ -45,4 +45,6 @@ Move-Item -LiteralPath $zipPath -Destination $vsixPath -Force
 Remove-Item -Recurse -Force $staging
 
 $info = Get-Item -LiteralPath $vsixPath
-Write-Host "[NesCode] Đóng gói thành công VSIX chính thức: $($info.FullName) ($($info.Length) bytes)"
+$size = $info.Length
+$name = $info.FullName
+Write-Host "[NesCode] Dong goi thanh cong VSIX chinh thuc: $name ($size bytes)"

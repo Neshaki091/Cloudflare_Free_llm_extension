@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { SecretManager } from './security/secretStorage.js';
 import { WorkerClient } from './api/workerClient.js';
+import { SessionManager } from './history/localConversationStore.js';
 import { ChatViewProvider } from './providers/ChatViewProvider.js';
 import { registerConfigureConnectionCommand } from './commands/configureConnection.js';
 import { registerCheckConnectionCommand } from './commands/checkConnection.js';
@@ -9,9 +10,10 @@ import { registerOpenChatCommand } from './commands/openChat.js';
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const secretManager = new SecretManager(context.secrets);
   const client = new WorkerClient(secretManager);
+  const sessionManager = new SessionManager(context.workspaceState);
 
-  // 1. Đăng ký WebviewView Chat Panel
-  const chatProvider = new ChatViewProvider(context.extensionUri, client);
+  // 1. Đăng ký WebviewView Chat Panel với SessionManager theo workspace
+  const chatProvider = new ChatViewProvider(context.extensionUri, client, sessionManager);
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider('nescode.chatView', chatProvider)
   );

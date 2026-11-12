@@ -104,3 +104,4 @@ export interface DoneEventData {
 }
 
 export interface ErrorEventData extends ErrorDetail {}
+

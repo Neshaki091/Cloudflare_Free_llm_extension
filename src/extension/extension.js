@@ -318,27 +318,156 @@ var WorkerClient = class {
   }
 };
 
+// src/extension/src/history/localConversationStore.ts
+var STORAGE_KEY_SESSIONS = "nescode_workspace_sessions_v1";
+var STORAGE_KEY_ACTIVE_ID = "nescode_active_session_id_v1";
+var SessionManager = class {
+  constructor(workspaceState) {
+    this.workspaceState = workspaceState;
+  }
+  workspaceState;
+  /**
+   * Lấy toàn bộ danh sách sessions thuộc workspace/dự án hiện tại.
+   */
+  getSessions() {
+    return this.workspaceState.get(STORAGE_KEY_SESSIONS, []);
+  }
+  /**
+   * Lưu danh sách sessions vào workspaceState cục bộ.
+   */
+  async saveSessions(sessions) {
+    await this.workspaceState.update(STORAGE_KEY_SESSIONS, sessions);
+  }
+  /**
+   * Lấy ID của session đang hoạt động.
+   */
+  getActiveSessionId() {
+    return this.workspaceState.get(STORAGE_KEY_ACTIVE_ID);
+  }
+  /**
+   * Lấy Session đang hoạt động. Nếu chưa có, tự động tạo mới một session mặc định.
+   */
+  async getOrCreateActiveSession() {
+    const sessions = this.getSessions();
+    const activeId = this.getActiveSessionId();
+    if (activeId) {
+      const found = sessions.find((s) => s.id === activeId);
+      if (found) {
+        return found;
+      }
+    }
+    if (sessions.length > 0) {
+      const first = sessions[0];
+      await this.workspaceState.update(STORAGE_KEY_ACTIVE_ID, first.id);
+      return first;
+    }
+    return await this.createSession("\u0110o\u1EA1n chat m\u1EDBi");
+  }
+  /**
+   * Tạo một session mới cho workspace hiện tại.
+   */
+  async createSession(title = "\u0110o\u1EA1n chat m\u1EDBi") {
+    const sessions = this.getSessions();
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const newSession = {
+      id: "session-" + Date.now() + "-" + Math.random().toString(36).substring(2, 7),
+      title,
+      createdAt: now,
+      updatedAt: now,
+      messages: []
+    };
+    sessions.unshift(newSession);
+    await this.saveSessions(sessions);
+    await this.workspaceState.update(STORAGE_KEY_ACTIVE_ID, newSession.id);
+    return newSession;
+  }
+  /**
+   * Chuyển đổi sang session khác theo ID.
+   */
+  async switchSession(sessionId) {
+    const sessions = this.getSessions();
+    const target = sessions.find((s) => s.id === sessionId);
+    if (target) {
+      await this.workspaceState.update(STORAGE_KEY_ACTIVE_ID, target.id);
+      return target;
+    }
+    return void 0;
+  }
+  /**
+   * Cập nhật danh sách tin nhắn và tự động đặt tiêu đề thông minh từ câu hỏi đầu tiên.
+   */
+  async updateSessionMessages(sessionId, messages) {
+    const sessions = this.getSessions();
+    const session = sessions.find((s) => s.id === sessionId);
+    if (!session) return void 0;
+    session.messages = messages;
+    session.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
+    if (session.title === "\u0110o\u1EA1n chat m\u1EDBi" && messages.length > 0) {
+      const firstUserMsg = messages.find((m) => m.role === "user");
+      if (firstUserMsg && firstUserMsg.content.trim()) {
+        const cleanText = firstUserMsg.content.trim().replace(/\s+/g, " ");
+        session.title = cleanText.length > 35 ? cleanText.slice(0, 35) + "..." : cleanText;
+      }
+    }
+    await this.saveSessions(sessions);
+    return session;
+  }
+  /**
+   * Xóa một session.
+   */
+  async deleteSession(sessionId) {
+    let sessions = this.getSessions();
+    sessions = sessions.filter((s) => s.id !== sessionId);
+    await this.saveSessions(sessions);
+    const activeId = this.getActiveSessionId();
+    if (activeId === sessionId) {
+      if (sessions.length > 0) {
+        await this.workspaceState.update(STORAGE_KEY_ACTIVE_ID, sessions[0].id);
+        return sessions[0];
+      } else {
+        return await this.createSession("\u0110o\u1EA1n chat m\u1EDBi");
+      }
+    }
+    return await this.getOrCreateActiveSession();
+  }
+  /**
+   * Xóa toàn bộ lịch sử các sessions trong workspace hiện tại.
+   */
+  async clearAllSessions() {
+    await this.saveSessions([]);
+    await this.workspaceState.update(STORAGE_KEY_ACTIVE_ID, void 0);
+    return await this.createSession("\u0110o\u1EA1n chat m\u1EDBi");
+  }
+};
+
 // src/extension/src/providers/ChatViewProvider.ts
 var vscode2 = __toESM(require("vscode"));
 var ChatViewProvider = class {
-  constructor(extensionUri, client) {
+  constructor(extensionUri, client, sessionManager) {
     this.extensionUri = extensionUri;
     this.client = client;
+    this.sessionManager = sessionManager;
   }
   extensionUri;
   client;
+  sessionManager;
   view;
   currentAbortController;
-  conversation = [];
-  resolveWebviewView(webviewView, _context, _token) {
+  currentSession;
+  async resolveWebviewView(webviewView, _context, _token) {
     this.view = webviewView;
     webviewView.webview.options = {
       enableScripts: true,
       localResourceRoots: [this.extensionUri]
     };
+    this.currentSession = await this.sessionManager.getOrCreateActiveSession();
     webviewView.webview.html = this.getHtmlForWebview();
     webviewView.webview.onDidReceiveMessage(async (message) => {
       switch (message.type) {
+        case "WEBVIEW_READY":
+          await this.syncSessionStateToWebview();
+          this.sendEditorContext();
+          break;
         case "SEND_PROMPT":
           await this.handleUserPrompt(message.prompt, message.mode, message.attachContext);
           break;
@@ -347,6 +476,30 @@ var ChatViewProvider = class {
             this.currentAbortController.abort();
             this.currentAbortController = void 0;
           }
+          break;
+        case "CREATE_NEW_SESSION":
+          this.currentSession = await this.sessionManager.createSession("\u0110o\u1EA1n chat m\u1EDBi");
+          await this.syncSessionStateToWebview();
+          break;
+        case "SWITCH_SESSION":
+          if (typeof message.sessionId === "string") {
+            const switched = await this.sessionManager.switchSession(message.sessionId);
+            if (switched) {
+              this.currentSession = switched;
+              await this.syncSessionStateToWebview();
+            }
+          }
+          break;
+        case "DELETE_SESSION":
+          if (typeof message.sessionId === "string") {
+            this.currentSession = await this.sessionManager.deleteSession(message.sessionId);
+            await this.syncSessionStateToWebview();
+          }
+          break;
+        case "CLEAR_ALL_SESSIONS":
+          this.currentSession = await this.sessionManager.clearAllSessions();
+          await this.syncSessionStateToWebview();
+          vscode2.window.showInformationMessage("\u0110\xE3 x\xF3a to\xE0n b\u1ED9 l\u1ECBch s\u1EED chat trong d\u1EF1 \xE1n n\xE0y.");
           break;
         case "OPEN_SETTINGS":
           await vscode2.commands.executeCommand("nescode.configureConnection");
@@ -360,10 +513,6 @@ var ChatViewProvider = class {
             vscode2.window.showInformationMessage("\u0110\xE3 sao ch\xE9p v\xE0o b\u1ED9 nh\u1EDB t\u1EA1m.");
           }
           break;
-        case "CLEAR_CHAT":
-          this.conversation = [];
-          this.view?.webview.postMessage({ type: "CHAT_CLEARED" });
-          break;
         case "REQUEST_EDITOR_CONTEXT":
           this.sendEditorContext();
           break;
@@ -375,7 +524,28 @@ var ChatViewProvider = class {
     vscode2.window.onDidChangeTextEditorSelection(() => {
       this.sendEditorContext();
     });
-    this.sendEditorContext();
+  }
+  /**
+   * Đồng bộ trạng thái Session và lịch sử tin nhắn xuống Webview
+   */
+  async syncSessionStateToWebview() {
+    if (!this.view) return;
+    const sessions = this.sessionManager.getSessions();
+    if (!this.currentSession) {
+      this.currentSession = await this.sessionManager.getOrCreateActiveSession();
+    }
+    this.view.webview.postMessage({
+      type: "SESSION_STATE_SYNC",
+      activeSessionId: this.currentSession.id,
+      activeSessionTitle: this.currentSession.title,
+      messages: this.currentSession.messages,
+      sessions: sessions.map((s) => ({
+        id: s.id,
+        title: s.title,
+        updatedAt: s.updatedAt,
+        messageCount: s.messages.length
+      }))
+    });
   }
   sendEditorContext() {
     const editor = vscode2.window.activeTextEditor;
@@ -404,6 +574,9 @@ var ChatViewProvider = class {
   async handleUserPrompt(promptText, mode = "chat", attachContext = true) {
     const cleanPrompt = promptText.trim();
     if (!cleanPrompt) return;
+    if (!this.currentSession) {
+      this.currentSession = await this.sessionManager.getOrCreateActiveSession();
+    }
     let contextData;
     if (attachContext) {
       const editor = vscode2.window.activeTextEditor;
@@ -437,21 +610,26 @@ var ChatViewProvider = class {
       id: userMsgId,
       role: "user",
       content: cleanPrompt,
-      timestamp: (/* @__PURE__ */ new Date()).toLocaleTimeString()
+      timestamp: (/* @__PURE__ */ new Date()).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })
     };
-    this.conversation.push(userMsg);
+    this.currentSession.messages.push(userMsg);
+    await this.sessionManager.updateSessionMessages(
+      this.currentSession.id,
+      this.currentSession.messages
+    );
     this.view?.webview.postMessage({
       type: "USER_MESSAGE_ADDED",
-      message: userMsg
+      message: userMsg,
+      sessionTitle: this.currentSession.title
     });
     const assistantMsgId = "msg-" + (Date.now() + 1);
     const assistantMsg = {
       id: assistantMsgId,
       role: "assistant",
       content: "",
-      timestamp: (/* @__PURE__ */ new Date()).toLocaleTimeString()
+      timestamp: (/* @__PURE__ */ new Date()).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })
     };
-    this.conversation.push(assistantMsg);
+    this.currentSession.messages.push(assistantMsg);
     this.view?.webview.postMessage({
       type: "ASSISTANT_STREAM_START",
       message: assistantMsg
@@ -460,7 +638,7 @@ var ChatViewProvider = class {
     const chatRequest = {
       requestId: crypto.randomUUID(),
       mode,
-      messages: this.conversation.slice(0, -1).map((m) => ({
+      messages: this.currentSession.messages.slice(0, -1).map((m) => ({
         role: m.role,
         content: m.content
       })),
@@ -481,7 +659,7 @@ var ChatViewProvider = class {
             fullContent: assistantMsg.content
           });
         },
-        onError: (err) => {
+        onError: async (err) => {
           assistantMsg.content += `
 
 \u26A0\uFE0F **[L\u1ED7i ${err.code}]**: ${err.message}`;
@@ -491,14 +669,27 @@ var ChatViewProvider = class {
             error: err,
             fullContent: assistantMsg.content
           });
+          if (this.currentSession) {
+            await this.sessionManager.updateSessionMessages(
+              this.currentSession.id,
+              this.currentSession.messages
+            );
+          }
         },
-        onDone: () => {
+        onDone: async () => {
           this.view?.webview.postMessage({
             type: "STREAM_COMPLETED",
             messageId: assistantMsgId,
             fullContent: assistantMsg.content
           });
           this.currentAbortController = void 0;
+          if (this.currentSession) {
+            await this.sessionManager.updateSessionMessages(
+              this.currentSession.id,
+              this.currentSession.messages
+            );
+            await this.syncSessionStateToWebview();
+          }
         }
       },
       this.currentAbortController.signal
@@ -525,6 +716,8 @@ var ChatViewProvider = class {
       --ai-bubble: var(--vscode-editor-background, #181818);
       --border-color: var(--vscode-panel-border, #333333);
       --code-bg: var(--vscode-textCodeBlock-background, rgba(0, 0, 0, 0.3));
+      --hover-bg: rgba(255, 255, 255, 0.08);
+      --danger-fg: #f44336;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -536,42 +729,168 @@ var ChatViewProvider = class {
       flex-direction: column;
       height: 100vh;
       overflow: hidden;
+      position: relative;
     }
     header {
-      padding: 8px 12px;
+      padding: 6px 10px;
       border-bottom: 1px solid var(--border-color);
       display: flex;
       justify-content: space-between;
       align-items: center;
       background: var(--bg);
+      gap: 6px;
     }
-    .status-badge {
+    .session-title-badge {
       display: flex;
       align-items: center;
       gap: 6px;
-      font-size: 11px;
-      font-weight: 500;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      padding: 3px 6px;
+      border-radius: 4px;
+      max-width: 65%;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+    .session-title-badge:hover {
+      background: var(--hover-bg);
     }
     .status-dot {
       width: 8px;
       height: 8px;
+      min-width: 8px;
       border-radius: 50%;
       background: #4caf50;
     }
     .header-actions {
       display: flex;
-      gap: 6px;
+      align-items: center;
+      gap: 4px;
     }
     .icon-btn {
       background: transparent;
       border: none;
       color: var(--fg);
       cursor: pointer;
-      padding: 4px;
+      padding: 4px 6px;
       border-radius: 4px;
-      opacity: 0.8;
+      opacity: 0.85;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
     .icon-btn:hover { opacity: 1; background: var(--input-border); }
+
+    /* Drawer L\u1ECBch s\u1EED Sessions */
+    #historyDrawer {
+      display: none;
+      position: absolute;
+      top: 37px;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: var(--bg);
+      z-index: 100;
+      flex-direction: column;
+      border-bottom: 1px solid var(--border-color);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    }
+    #historyDrawer.open {
+      display: flex;
+    }
+    .drawer-header {
+      padding: 8px 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border-color);
+      background: rgba(255, 255, 255, 0.03);
+    }
+    .drawer-header h5 {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .drawer-actions {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    .drawer-btn {
+      font-size: 11px;
+      background: transparent;
+      border: 1px solid var(--border-color);
+      color: var(--fg);
+      padding: 2px 6px;
+      border-radius: 3px;
+      cursor: pointer;
+    }
+    .drawer-btn:hover { background: var(--hover-bg); }
+    .drawer-btn.danger { color: var(--danger-fg); border-color: rgba(244, 67, 54, 0.4); }
+    .drawer-btn.danger:hover { background: rgba(244, 67, 54, 0.15); }
+    .session-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .session-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 10px;
+      border-radius: 6px;
+      border: 1px solid transparent;
+      cursor: pointer;
+      background: rgba(255, 255, 255, 0.02);
+      transition: background 0.15s;
+    }
+    .session-item:hover {
+      background: var(--hover-bg);
+    }
+    .session-item.active {
+      border-color: var(--btn-bg);
+      background: rgba(0, 122, 204, 0.12);
+    }
+    .session-item-info {
+      flex: 1;
+      overflow: hidden;
+    }
+    .session-item-title {
+      font-size: 12px;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .session-item-meta {
+      font-size: 10px;
+      opacity: 0.6;
+      margin-top: 2px;
+    }
+    .session-item-del {
+      background: transparent;
+      border: none;
+      color: var(--fg);
+      opacity: 0.4;
+      cursor: pointer;
+      padding: 4px;
+      font-size: 12px;
+      border-radius: 3px;
+    }
+    .session-item-del:hover {
+      opacity: 1;
+      color: var(--danger-fg);
+      background: rgba(244, 67, 54, 0.15);
+    }
+
+    /* V\xF9ng h\u1ED9i tho\u1EA1i */
     #transcript {
       flex: 1;
       overflow-y: auto;
@@ -707,20 +1026,36 @@ var ChatViewProvider = class {
 </head>
 <body>
   <header>
-    <div class="status-badge">
+    <div class="session-title-badge" id="btnToggleHistory" title="B\u1EA5m \u0111\u1EC3 xem danh s\xE1ch l\u1ECBch s\u1EED c\xE1c phi\xEAn chat trong d\u1EF1 \xE1n n\xE0y">
       <div class="status-dot"></div>
-      <span id="statusText">GLM-4.7-Flash (Free)</span>
+      <span id="currentSessionTitle">\u0110o\u1EA1n chat m\u1EDBi</span>
+      <span style="font-size: 9px; opacity: 0.6;">\u25BC</span>
     </div>
     <div class="header-actions">
-      <button class="icon-btn" id="btnClear" title="X\xF3a l\u1ECBch s\u1EED chat">\u{1F5D1}</button>
-      <button class="icon-btn" id="btnSettings" title="C\u1EA5u h\xECnh k\u1EBFt n\u1ED1i">\u2699</button>
+      <button class="icon-btn" id="btnNewSession" title="T\u1EA1o \u0111o\u1EA1n chat m\u1EDBi trong d\u1EF1 \xE1n (+)">\u2795</button>
+      <button class="icon-btn" id="btnHistory" title="L\u1ECBch s\u1EED c\xE1c phi\xEAn chat (D\u1EF1 \xE1n n\xE0y)">\u{1F4DC}</button>
+      <button class="icon-btn" id="btnSettings" title="C\u1EA5u h\xECnh k\u1EBFt n\u1ED1i Worker">\u2699</button>
     </div>
   </header>
+
+  <!-- Drawer danh s\xE1ch sessions trong d\u1EF1 \xE1n -->
+  <div id="historyDrawer">
+    <div class="drawer-header">
+      <h5>L\u1ECBch s\u1EED phi\xEAn chat (D\u1EF1 \xE1n n\xE0y)</h5>
+      <div class="drawer-actions">
+        <button class="drawer-btn danger" id="btnClearAll" title="X\xF3a to\xE0n b\u1ED9 l\u1ECBch s\u1EED trong d\u1EF1 \xE1n">X\xF3a t\u1EA5t c\u1EA3</button>
+        <button class="drawer-btn" id="btnCloseDrawer">\u2715</button>
+      </div>
+    </div>
+    <div class="session-list" id="sessionList">
+      <!-- Session items will be dynamically rendered here -->
+    </div>
+  </div>
 
   <div id="transcript">
     <div class="empty-state" id="emptyState">
       <h4>Xin ch\xE0o! T\xF4i l\xE0 NesCode</h4>
-      <p>Tr\u1EE3 l\xFD l\u1EADp tr\xECnh AI v\u1EADn h\xE0nh tr\xEAn Cloudflare Workers AI.<br>B\u1EA1n c\xF3 th\u1EC3 \u0111\u1EB7t c\xE2u h\u1ECFi k\u1EF9 thu\u1EADt, nh\u1EDD gi\u1EA3i th\xEDch code ho\u1EB7c \u0111\u1EC1 xu\u1EA5t b\u1EA3n s\u1EEDa l\u1ED7i.</p>
+      <p>Tr\u1EE3 l\xFD l\u1EADp tr\xECnh AI v\u1EADn h\xE0nh tr\xEAn Cloudflare Workers AI.<br>M\u1ECDi phi\xEAn chat \u0111\u01B0\u1EE3c t\u1EF1 \u0111\u1ED9ng l\u01B0u ri\xEAng bi\u1EC7t theo t\u1EEBng d\u1EF1 \xE1n c\u1EE7a b\u1EA1n.</p>
     </div>
   </div>
 
@@ -743,17 +1078,24 @@ var ChatViewProvider = class {
     const promptInput = document.getElementById('promptInput');
     const btnSend = document.getElementById('btnSend');
     const btnStop = document.getElementById('btnStop');
-    const btnClear = document.getElementById('btnClear');
+    const btnNewSession = document.getElementById('btnNewSession');
+    const btnHistory = document.getElementById('btnHistory');
+    const btnToggleHistory = document.getElementById('btnToggleHistory');
+    const btnCloseDrawer = document.getElementById('btnCloseDrawer');
+    const btnClearAll = document.getElementById('btnClearAll');
     const btnSettings = document.getElementById('btnSettings');
     const contextInfo = document.getElementById('contextInfo');
     const chkAttachContext = document.getElementById('chkAttachContext');
+    const currentSessionTitle = document.getElementById('currentSessionTitle');
+    const historyDrawer = document.getElementById('historyDrawer');
+    const sessionList = document.getElementById('sessionList');
 
     let isStreaming = false;
+    let activeSessionId = '';
 
-    // Helper render markdown \u0111\u01A1n gi\u1EA3n & an to\xE0n
+    // Markdown renderer
     function renderMarkdown(rawText) {
       if (!rawText) return '';
-      // Escape HTML
       let escaped = rawText
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
@@ -807,6 +1149,80 @@ var ChatViewProvider = class {
       promptInput.disabled = streaming;
     }
 
+    function toggleHistoryDrawer(open) {
+      if (typeof open === 'boolean') {
+        if (open) historyDrawer.classList.add('open');
+        else historyDrawer.classList.remove('open');
+      } else {
+        historyDrawer.classList.toggle('open');
+      }
+    }
+
+    function formatTime(isoString) {
+      try {
+        const d = new Date(isoString);
+        return d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) + ' ' + d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' });
+      } catch {
+        return '';
+      }
+    }
+
+    function renderMessages(messages) {
+      transcript.innerHTML = '';
+      if (!messages || messages.length === 0) {
+        transcript.appendChild(emptyState);
+        emptyState.style.display = 'block';
+        return;
+      }
+
+      emptyState.style.display = 'none';
+      messages.forEach((m) => {
+        const div = document.createElement('div');
+        div.className = 'message ' + m.role;
+        div.id = m.id;
+        const metaPrefix = m.role === 'user' ? '' : ' - NesCode AI';
+        div.innerHTML = '<div class="message-meta">' + m.timestamp + metaPrefix + '</div><div class="message-content" id="content-' + m.id + '">' + renderMarkdown(m.content) + '</div>';
+        transcript.appendChild(div);
+      });
+      transcript.scrollTop = transcript.scrollHeight;
+    }
+
+    function renderSessionList(sessions, activeId) {
+      sessionList.innerHTML = '';
+      if (!sessions || sessions.length === 0) {
+        sessionList.innerHTML = '<div style="padding: 12px; text-align: center; opacity: 0.6; font-size: 11px;">Ch\u01B0a c\xF3 l\u1ECBch s\u1EED phi\xEAn chat n\xE0o</div>';
+        return;
+      }
+
+      sessions.forEach((s) => {
+        const item = document.createElement('div');
+        item.className = 'session-item' + (s.id === activeId ? ' active' : '');
+        
+        const info = document.createElement('div');
+        info.className = 'session-item-info';
+        info.innerHTML = '<div class="session-item-title">' + (s.id === activeId ? '\u{1F4AC} ' : '\u{1F5E8}\uFE0F ') + s.title + '</div>' +
+          '<div class="session-item-meta">' + s.messageCount + ' tin nh\u1EAFn \u2022 ' + formatTime(s.updatedAt) + '</div>';
+        
+        info.addEventListener('click', () => {
+          vscode.postMessage({ type: 'SWITCH_SESSION', sessionId: s.id });
+          toggleHistoryDrawer(false);
+        });
+
+        const delBtn = document.createElement('button');
+        delBtn.className = 'session-item-del';
+        delBtn.title = 'X\xF3a phi\xEAn chat n\xE0y';
+        delBtn.textContent = '\u{1F5D1}';
+        delBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          vscode.postMessage({ type: 'DELETE_SESSION', sessionId: s.id });
+        });
+
+        item.appendChild(info);
+        item.appendChild(delBtn);
+        sessionList.appendChild(item);
+      });
+    }
+
     btnSend.addEventListener('click', sendPrompt);
 
     btnStop.addEventListener('click', () => {
@@ -814,8 +1230,18 @@ var ChatViewProvider = class {
       setStreamingState(false);
     });
 
-    btnClear.addEventListener('click', () => {
-      vscode.postMessage({ type: 'CLEAR_CHAT' });
+    btnNewSession.addEventListener('click', () => {
+      vscode.postMessage({ type: 'CREATE_NEW_SESSION' });
+      toggleHistoryDrawer(false);
+    });
+
+    btnHistory.addEventListener('click', () => toggleHistoryDrawer());
+    btnToggleHistory.addEventListener('click', () => toggleHistoryDrawer());
+    btnCloseDrawer.addEventListener('click', () => toggleHistoryDrawer(false));
+
+    btnClearAll.addEventListener('click', () => {
+      vscode.postMessage({ type: 'CLEAR_ALL_SESSIONS' });
+      toggleHistoryDrawer(false);
     });
 
     btnSettings.addEventListener('click', () => {
@@ -832,7 +1258,19 @@ var ChatViewProvider = class {
     window.addEventListener('message', (event) => {
       const msg = event.data;
       switch (msg.type) {
+        case 'SESSION_STATE_SYNC': {
+          activeSessionId = msg.activeSessionId;
+          currentSessionTitle.textContent = msg.activeSessionTitle || '\u0110o\u1EA1n chat m\u1EDBi';
+          renderMessages(msg.messages);
+          renderSessionList(msg.sessions, activeSessionId);
+          break;
+        }
+
         case 'USER_MESSAGE_ADDED': {
+          if (emptyState) emptyState.style.display = 'none';
+          if (msg.sessionTitle) {
+            currentSessionTitle.textContent = msg.sessionTitle;
+          }
           const div = document.createElement('div');
           div.className = 'message user';
           div.id = msg.message.id;
@@ -872,15 +1310,6 @@ var ChatViewProvider = class {
           break;
         }
 
-        case 'CHAT_CLEARED': {
-          transcript.innerHTML = '';
-          if (emptyState) {
-            transcript.appendChild(emptyState);
-            emptyState.style.display = 'block';
-          }
-          break;
-        }
-
         case 'UPDATE_CONTEXT': {
           if (!msg.hasContext) {
             contextInfo.textContent = '\u{1F4CE} Kh\xF4ng c\xF3 file \u0111ang m\u1EDF';
@@ -894,8 +1323,8 @@ var ChatViewProvider = class {
       }
     });
 
-    // Y\xEAu c\u1EA7u l\u1EA5y context editor ban \u0111\u1EA7u
-    vscode.postMessage({ type: 'REQUEST_EDITOR_CONTEXT' });
+    // Th\xF4ng b\xE1o Webview \u0111\xE3 s\u1EB5n s\xE0ng nh\u1EADn d\u1EEF li\u1EC7u ban \u0111\u1EA7u
+    vscode.postMessage({ type: 'WEBVIEW_READY' });
   </script>
 </body>
 </html>`;
@@ -1011,7 +1440,8 @@ function registerOpenChatCommand() {
 async function activate(context) {
   const secretManager = new SecretManager(context.secrets);
   const client = new WorkerClient(secretManager);
-  const chatProvider = new ChatViewProvider(context.extensionUri, client);
+  const sessionManager = new SessionManager(context.workspaceState);
+  const chatProvider = new ChatViewProvider(context.extensionUri, client, sessionManager);
   context.subscriptions.push(
     vscode6.window.registerWebviewViewProvider("nescode.chatView", chatProvider)
   );

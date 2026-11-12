@@ -60,3 +60,4 @@ export function normalizeAiError(err: unknown): { status: number; detail: ErrorD
     }
   };
 }
+

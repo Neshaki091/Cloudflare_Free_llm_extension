@@ -21,3 +21,4 @@ console.log('[NesCode] Bắt đầu build Extension bundle qua esbuild...');
 const cmd = `${esbuildBin} src/extension/src/extension.ts --bundle --platform=node --target=node20 --external:vscode --format=cjs --outfile=src/extension/extension.js`;
 execSync(cmd, { stdio: 'inherit' });
 console.log('[NesCode] Biên dịch Extension thành công -> src/extension/extension.js');
+

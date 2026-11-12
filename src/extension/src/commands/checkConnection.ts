@@ -28,3 +28,4 @@ export function registerCheckConnectionCommand(client: WorkerClient): vscode.Dis
     );
   });
 }
+
