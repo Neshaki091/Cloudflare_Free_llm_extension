@@ -6,36 +6,50 @@ Nơi lưu trữ chi tiết các nhiệm vụ đã đạt định nghĩa hoàn th
 
 ---
 
+## TASK-300 (Series TASK-301 đến TASK-304) — Xây Dựng Tiện Ích Mở Rộng Extension MVP (M3)
+
+- **Status:** DONE
+- **Priority:** P0 (Extension Host & Chat UI)
+- **Milestone:** M3 — Extension MVP
+- **Related SRS:** FR-004, FR-005, FR-006, FR-010, FR-011, FR-012, FR-013, FR-014, FR-060, FR-061, NFR-SEC-002, NFR-SEC-007
+- **Dependencies:** Hoàn thành M0, M1, M2
+- **Owner:** AI Lead Architect
+- **Created:** 2026-11-11
+- **Updated:** 2026-11-12
+
+### Objective
+Lập trình hoàn chỉnh tiện ích mở rộng NesCode for Antigravity: Chat Webview Panel tích hợp ở Activity Bar, các lệnh cấu hình kết nối và kiểm tra kết nối, lưu trữ API key an toàn qua `SecretStorage`, kết nối streaming Server-Sent Events (SSE) thời gian thực tới Worker, hiển thị Markdown & code blocks, và đóng gói thành công file VSIX chính thức.
+
+### Scope & Thực Hiện
+- `src/extension/package.json`: Khai báo view container `nescode-chat-sidebar`, webview view `nescode.chatView`, các lệnh `nescode.openChat`, `nescode.configureConnection`, `nescode.checkConnection`, và các cài đặt cấu hình `nescode.*`.
+- `src/extension/src/security/secretStorage.ts`: Quản lý `context.secrets` an toàn cho `NESCODE_API_KEY`.
+- `src/extension/src/api/sseParser.ts`: Bộ giải mã luồng SSE xử lý phân mảnh chunk và CRLF.
+- `src/extension/src/api/workerClient.ts`: API Client hỗ trợ gọi `health`, `models`, và `chat` (Streaming SSE + JSON fallback) kèm `AbortController`.
+- `src/extension/src/providers/ChatViewProvider.ts`: WebviewView chat UI với thiết kế hiện đại, Markdown renderer, code container kèm nút sao chép, quản lý đính kèm context từ active editor và selection.
+- `src/extension/src/commands/`:
+  - `configureConnection.ts`: Hộp thoại nhập URL và API key (kiểm tra HTTPS và test health ngay).
+  - `checkConnection.ts`: Thông báo trạng thái kết nối Connected/Disconnected.
+  - `openChat.ts`: Mở panel chat.
+- `scripts/build-extension.mjs` & `scripts/package-extension.ps1`: Kịch bản build esbuild và đóng gói VSIX tự động.
+
+### Verification Evidence
+- Đóng gói file VSIX chính thức: [`build/nescode-antigravity-0.1.0.vsix`](file:///F:/IT%20project/Cloudflare_Free_llm_extension/build/nescode-antigravity-0.1.0.vsix) (16.537 bytes).
+- Cài đặt trực tiếp vào Antigravity IDE:
+  `antigravity-ide.cmd --install-extension "...\build\nescode-antigravity-0.1.0.vsix" --force`
+  ➔ **`Extension 'nescode-antigravity-0.1.0.vsix' was successfully installed.`**
+- Kiểm tra danh sách extension đã cài đặt:
+  `antigravity-ide.cmd --list-extensions --show-versions`
+  ➔ **`nescode.nescode-antigravity@0.1.0`** xuất hiện chính thức trong danh sách.
+
+---
+
 ## TASK-200 (Series TASK-201 đến TASK-205) — Triển Khai Hoàn Chỉnh Backend Cloudflare Worker (M2)
 
 - **Status:** DONE
 - **Priority:** P0 (Backend Serverless)
 - **Milestone:** M2 — Cloudflare Backend MVP
 - **Related SRS:** FR-040 đến FR-051, NFR-SEC-001 đến NFR-SEC-012
-- **Dependencies:** Hoàn thành TASK-101 (Shared Contracts)
-- **Owner:** AI Lead Architect
-- **Created:** 2026-11-11
-- **Updated:** 2026-11-12
-
-### Objective
-Lập trình hoàn chỉnh mã nguồn Cloudflare Worker gateway kết nối Workers AI, tích hợp middleware xác thực an toàn thời gian, kiểm tra payload, xây dựng prompt máy chủ, định tuyến model, chuẩn hóa luồng Server-Sent Events (SSE) và mã lỗi.
-
-### Scope & Thực Hiện
-- `src/worker/src/index.ts`: Entry point tiếp nhận fetch requests, xử lý CORS preflight, correlation ID (`X-Request-ID`) và định tuyến.
-- `src/worker/src/routes/health.ts`: Endpoint `GET /v1/health` kiểm tra kết nối, trả về service info và model mặc định không làm lộ secret.
-- `src/worker/src/routes/models.ts`: Endpoint `GET /v1/models` trả danh sách model allowlist (`@cf/zai-org/glm-4.7-flash`).
-- `src/worker/src/routes/chat.ts`: Endpoint `POST /v1/chat` kết nối `env.AI.run()`, hỗ trợ streaming SSE và JSON fallback.
-- `src/worker/src/middleware/auth.ts`: Xác thực Bearer API Key sử dụng thuật toán so sánh an toàn thời gian (`timingSafeEqual`).
-- `src/worker/src/middleware/validateBody.ts`: Giới hạn kích thước body 256 KiB, validate schema, lọc bỏ role không hợp lệ, chặn path traversal.
-- `src/worker/src/ai/promptBuilder.ts`: System Prompt máy chủ chống Prompt Injection cho 4 modes: `chat`, `explain`, `fix`, `generate_tests`.
-- `src/worker/src/ai/streamAdapter.ts`: Chuẩn hóa luồng SSE theo hợp đồng SRS (`meta`, `delta`, `usage`, `done`, `error`).
-- `src/worker/src/utils/safeErrors.ts`: Chuẩn hóa các lỗi hạn ngạch (`AI_QUOTA_EXCEEDED`, `AI_CAPACITY_UNAVAILABLE`, `AI_TIMEOUT`).
-
-### Verification Evidence
-- Lệnh chạy thử nghiệm: `npx wrangler deploy --dry-run` trong `src/worker/`.
-- Kết quả: **PASS (Exit code 0)**.
-  - Tổng kích thước upload: `25.99 KiB` (gzip `7.27 KiB`).
-  - Đã liên kết thành công binding `env.AI` và các biến môi trường: `DEFAULT_MODEL`, `MAX_BODY_BYTES`, `MAX_OUTPUT_TOKENS`, `ENABLE_STREAMING`.
+- **Verification:** Deployed live trên Cloudflare tại: `https://nescode-ai-gateway.neshaki-ai-cloudflare.workers.dev`.
 
 ---
 
@@ -44,20 +58,6 @@ Lập trình hoàn chỉnh mã nguồn Cloudflare Worker gateway kết nối Wor
 - **Status:** DONE
 - **Priority:** P0
 - **Milestone:** M1 — Project Foundation
-- **Related SRS:** SRS mục 7.4, 7.5, 7.6, 7.7
-- **Dependencies:** TASK-000
-- **Owner:** AI Lead Architect
-- **Created:** 2026-11-11
-- **Updated:** 2026-11-12
-
-### Objective
-Định nghĩa toàn bộ interfaces, types cho Chat Request, SSE Delta Events, Error Contracts và Constants tại `src/shared/`.
-
-### Scope & Thực Hiện
-- `src/shared/src/error-codes.ts`: 10 mã lỗi chuẩn hóa của hệ thống.
-- `src/shared/src/constants.ts`: Hằng số cấu hình mặc định (model, budget, exclude patterns).
-- `src/shared/src/api-types.ts`: Toàn bộ types cho request/response của các endpoint và SSE events.
-- `src/shared/src/index.ts`: Re-export an toàn cho các tầng khác.
 
 ---
 
@@ -66,8 +66,6 @@ Lập trình hoàn chỉnh mã nguồn Cloudflare Worker gateway kết nối Wor
 - **Status:** DONE
 - **Priority:** P0
 - **Milestone:** M0 — Compatibility Spike
-- **Related SRS:** FR-001, FR-002, FR-003, mục 13.3, mục 14
-- **Verification:** Cài đặt thành công `build/nescode-spike-0.1.0.vsix` vào Antigravity IDE 1.107.0 với kết luận GO.
 
 ---
 

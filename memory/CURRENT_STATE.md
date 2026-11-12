@@ -1,18 +1,22 @@
 # Trạng Thái Hiện Tại Của Dự Án (Current State)
 
 - **Ngày cập nhật gần nhất:** 2026-11-12
-- **Trạng thái:** Verified (Hoàn thành Milestone M0, M1, và M2)
-- **Cột mốc tiếp theo:** `M3 — Extension MVP`
-- **Nguồn thông tin:** `src/worker/src/index.ts`, `wrangler deploy --dry-run` (PASS)
+- **Trạng thái:** Verified (Hoàn thành Milestone M0, M1, M2 và M3)
+- **Cột mốc tiếp theo:** `M4 — Context Engineering`
+- **Nguồn thông tin:** `https://nescode-ai-gateway.neshaki-ai-cloudflare.workers.dev`, `nescode.nescode-antigravity@0.1.0` đã cài đặt vào Antigravity IDE
 
 ---
 
 ## 1. Bức Tranh Tổng Thể (Project Snapshot)
 
-- **Milestone M0 (Compatibility Spike):** ĐÃ HOÀN THÀNH (GO). Extension spike đã được cài đặt và xác minh trên Antigravity IDE 1.107.0.
-- **Milestone M1 (Shared Contracts):** ĐÃ HOÀN THÀNH. Bộ kiểu dữ liệu, hằng số và mã lỗi chuẩn hóa đã sẵn sàng trong `src/shared/`.
-- **Milestone M2 (Cloudflare Worker Backend MVP):** ĐÃ HOÀN THÀNH. Mã nguồn Worker hoàn chỉnh (`src/worker/src/index.ts`) đã biên dịch thành công qua Wrangler (25.99 KiB). Sẵn sàng deploy lên tài khoản Cloudflare của người dùng.
-- **Cột mốc tiếp theo:** `Milestone M3 (Extension MVP)` — Xây dựng Chat Webview Panel và kết nối Extension Client với Worker.
+- **Backend Cloudflare Worker (M2):** ĐÃ TRIỂN KHAI THÀNH CÔNG trên Cloudflare Edge:
+  - URL: `https://nescode-ai-gateway.neshaki-ai-cloudflare.workers.dev`
+  - Đã xác minh phản hồi an toàn từ Cloudflare Edge.
+- **Tiện Ích Mở Rộng Extension MVP (M3):** ĐÃ HOÀN THÀNH VÀ CÀI ĐẶT:
+  - Đã lập trình đầy đủ mã nguồn `src/extension/` (Webview Chat Panel, WorkerClient, SecretManager, commands).
+  - Đã đóng gói thành file VSIX chính thức: `build/nescode-antigravity-0.1.0.vsix` (16.537 bytes).
+  - Đã cài đặt thực tế vào Antigravity IDE: hiển thị `nescode.nescode-antigravity@0.1.0` trong danh sách tiện ích mở rộng đã cài đặt.
+- **Cột mốc tiếp theo:** `Milestone M4 (Context Engineering)` — Hoàn thiện tính năng chọn file nâng cao (Context Picker), lọc bảo mật tự động và kiểm soát ngân sách token (Context Budgeter).
 
 ---
 
@@ -22,5 +26,5 @@
 |---|---|---|
 | **Cột Mốc M0 (Spike)** | **DONE (GO)** | Đã kiểm chứng tính tương thích của Antigravity IDE qua gói `.vsix` thực tế. |
 | **Tầng Dùng Chung (Shared)** | **DONE** | Toàn bộ types, error codes, constants đã sẵn sàng trong `src/shared/`. |
-| **Backend Worker (M2)** | **DONE (Sẵn sàng deploy)** | Đã lập trình đầy đủ routes (`health`, `models`, `chat`), auth, validate, SSE stream, prompt builder. Đã kiểm tra `wrangler deploy --dry-run` thành công. |
-| **Tiện Ích Mở Rộng (Extension)** | Chuẩn bị triển khai M3 | Sẽ tích hợp Chat Webview Panel và API Client trong Milestone M3. |
+| **Backend Worker (M2)** | **DONE (Đang chạy live)** | Deployed live trên Cloudflare tại `https://nescode-ai-gateway.neshaki-ai-cloudflare.workers.dev`. |
+| **Tiện Ích Mở Rộng (M3)** | **DONE (Đã cài đặt)** | Đã cài đặt `nescode.nescode-antigravity@0.1.0` vào Antigravity IDE, sẵn sàng sử dụng. |

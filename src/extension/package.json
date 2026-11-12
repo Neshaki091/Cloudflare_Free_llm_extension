@@ -2,7 +2,7 @@
   "name": "nescode-antigravity",
   "displayName": "NesCode for Antigravity",
   "description": "AI Coding Assistant extension for Antigravity IDE powered by Cloudflare Workers AI",
-  "version": "0.1.0-alpha.0",
+  "version": "0.1.0",
   "publisher": "nescode",
   "engines": {
     "vscode": "^1.85.0"
@@ -12,13 +12,86 @@
     "Programming Languages",
     "Machine Learning"
   ],
-  "main": "./dist/extension.js",
-  "scripts": {
-    "typecheck": "tsc --noEmit",
-    "build": "node esbuild.js",
-    "package": "vsce package --out ../../build/"
-  },
-  "dependencies": {
-    "@nescode/shared": "*"
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "nescode.openChat",
+        "title": "NesCode: Mở Khung Chat AI",
+        "category": "NesCode"
+      },
+      {
+        "command": "nescode.configureConnection",
+        "title": "NesCode: Cấu Hình Kết Nối Worker",
+        "category": "NesCode"
+      },
+      {
+        "command": "nescode.checkConnection",
+        "title": "NesCode: Kiểm Tra Kết Nối",
+        "category": "NesCode"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "nescode-chat-sidebar",
+          "title": "NesCode AI",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "nescode-chat-sidebar": [
+        {
+          "type": "webview",
+          "id": "nescode.chatView",
+          "name": "Trợ Lý Lập Trình AI"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "NesCode AI",
+      "properties": {
+        "nescode.apiBaseUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Địa chỉ Worker URL (ví dụ: https://nescode-ai-gateway.xxx.workers.dev)"
+        },
+        "nescode.defaultMode": {
+          "type": "string",
+          "enum": [
+            "chat",
+            "explain",
+            "fix",
+            "generate_tests"
+          ],
+          "default": "chat",
+          "description": "Chế độ tương tác mặc định"
+        },
+        "nescode.streamResponses": {
+          "type": "boolean",
+          "default": true,
+          "description": "Bật/tắt nhận phản hồi từng từ thời gian thực (Server-Sent Events)"
+        },
+        "nescode.maxContextTokens": {
+          "type": "number",
+          "default": 12000,
+          "description": "Ngân sách tối đa cho ngữ cảnh code đính kèm (tokens)"
+        },
+        "nescode.maxOutputTokens": {
+          "type": "number",
+          "default": 1500,
+          "description": "Giới hạn số token đầu ra tối đa cho mỗi phản hồi"
+        },
+        "nescode.requestTimeoutMs": {
+          "type": "number",
+          "default": 120000,
+          "description": "Thời gian chờ tối đa cho mỗi yêu cầu suy luận AI (milliseconds)"
+        }
+      }
+    }
   }
 }
