@@ -259,6 +259,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       }
     };
 
+    let lastSaveTime = Date.now();
+
     // 6. Gọi streaming tới Worker
     await this.client.sendChatStream(
       chatRequest,
@@ -271,6 +273,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             delta: delta.text,
             fullContent: assistantMsg.content
           });
+
+          // Định kỳ lưu state mỗi 1.2 giây để tránh mất dữ liệu nếu bị ngắt đột ngột
+          const now = Date.now();
+          if (now - lastSaveTime > 1200) {
+            lastSaveTime = now;
+            if (this.currentSession) {
+              this.sessionManager.updateSessionMessages(
+                this.currentSession.id,
+                this.currentSession.messages
+              ).catch(() => {});
+            }
+          }
         },
         onError: async (err) => {
           assistantMsg.content += `\n\n⚠️ **[Lỗi ${err.code}]**: ${err.message}`;
@@ -335,6 +349,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       --code-bg: var(--vscode-textCodeBlock-background, rgba(0, 0, 0, 0.3));
       --hover-bg: rgba(255, 255, 255, 0.08);
       --danger-fg: #f44336;
+      --accent-color: #007acc;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -548,11 +563,106 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     .message-meta {
       font-size: 10px;
       opacity: 0.6;
-      margin-bottom: 4px;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
     }
     .message-content {
       line-height: 1.5;
     }
+
+    /* Hiệu ứng xoay tròn và trạng thái suy nghĩ */
+    @keyframes nescode-spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    @keyframes nescode-pulse {
+      0%, 100% { opacity: 0.7; }
+      50% { opacity: 1; }
+    }
+
+    .thinking-banner {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px;
+      background: rgba(0, 122, 204, 0.08);
+      border: 1px solid rgba(0, 122, 204, 0.25);
+      border-left: 3px solid var(--btn-bg);
+      border-radius: 6px;
+      margin-bottom: 8px;
+      animation: nescode-pulse 2s ease-in-out infinite;
+    }
+    .thinking-spinner {
+      width: 16px;
+      height: 16px;
+      min-width: 16px;
+      border: 2px solid rgba(0, 122, 204, 0.2);
+      border-top-color: var(--btn-bg);
+      border-radius: 50%;
+      animation: nescode-spin 0.8s linear infinite;
+    }
+    .thinking-spinner-sm {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      min-width: 12px;
+      border: 2px solid rgba(0, 122, 204, 0.3);
+      border-top-color: var(--btn-bg);
+      border-radius: 50%;
+      animation: nescode-spin 0.8s linear infinite;
+      vertical-align: middle;
+      margin-right: 4px;
+    }
+    .thinking-info {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .thinking-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--fg);
+    }
+    .thinking-subtitle {
+      font-size: 11px;
+      opacity: 0.75;
+    }
+
+    /* Khối suy nghĩ có thể thu gọn (Thinking / Reasoning Block) */
+    .thought-details {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border-color);
+      border-left: 3px solid #ff9800;
+      border-radius: 6px;
+      padding: 6px 10px;
+      margin: 6px 0 10px 0;
+      font-size: 12px;
+    }
+    .thought-summary {
+      cursor: pointer;
+      font-weight: 500;
+      color: #ffb74d;
+      outline: none;
+      user-select: none;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .thought-summary:hover {
+      text-decoration: underline;
+    }
+    .thought-content {
+      margin-top: 6px;
+      padding-top: 6px;
+      border-top: 1px dashed rgba(255, 255, 255, 0.1);
+      color: rgba(255, 255, 255, 0.8);
+      font-style: italic;
+      line-height: 1.45;
+      white-space: pre-wrap;
+    }
+
     .code-container {
       position: relative;
       background: var(--code-bg);
@@ -584,6 +694,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       font-size: 11px;
     }
     .copy-btn:hover { text-decoration: underline; }
+
     footer {
       border-top: 1px solid var(--border-color);
       padding: 8px 12px;
@@ -672,7 +783,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   <div id="transcript">
     <div class="empty-state" id="emptyState">
       <h4>Xin chào! Tôi là NesCode</h4>
-      <p>Trợ lý lập trình AI vận hành trên Cloudflare Workers AI.<br>Mọi phiên chat được tự động lưu riêng biệt theo từng dự án của bạn.</p>
+      <p>Trợ lý lập trình AI vận hành trên Cloudflare Workers AI.<br>Mọi phiên chat và trạng thái đều được tự động lưu riêng biệt theo từng dự án của bạn.</p>
     </div>
   </div>
 
@@ -710,7 +821,33 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     let isStreaming = false;
     let activeSessionId = '';
 
-    // Markdown renderer
+    // Khôi phục Persistent State của Webview (draft text, checkbox, drawer)
+    const savedState = vscode.getState() || {};
+    if (savedState.draftPrompt) {
+      promptInput.value = savedState.draftPrompt;
+    }
+    if (typeof savedState.attachContext === 'boolean') {
+      chkAttachContext.checked = savedState.attachContext;
+    }
+    if (savedState.isDrawerOpen) {
+      historyDrawer.classList.add('open');
+    }
+
+    function updateState(partial) {
+      const current = vscode.getState() || {};
+      vscode.setState({ ...current, ...partial });
+    }
+
+    // Tự động lưu bản nháp khi người dùng gõ
+    promptInput.addEventListener('input', () => {
+      updateState({ draftPrompt: promptInput.value });
+    });
+
+    chkAttachContext.addEventListener('change', () => {
+      updateState({ attachContext: chkAttachContext.checked });
+    });
+
+    // Markdown & Reasoning parser
     function renderMarkdown(rawText) {
       if (!rawText) return '';
       let escaped = rawText
@@ -718,19 +855,29 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;');
 
-      // Code blocks
+      // 1. Parse khối suy nghĩ hoàn chỉnh <think>...</think> hoặc <thought>...</thought>
+      escaped = escaped.replace(/&lt;(?:think|thought)&gt;([\s\S]*?)&lt;\/(?:think|thought)&gt;/gi, (match, thoughtText) => {
+        return '<details class="thought-details" open><summary class="thought-summary">💭 <span>Quá trình suy nghĩ của AI</span></summary><div class="thought-content">' + thoughtText.trim() + '</div></details>';
+      });
+
+      // 2. Parse khối suy nghĩ đang stream dở <think>... chưa đóng
+      escaped = escaped.replace(/&lt;(?:think|thought)&gt;([\s\S]*)$/gi, (match, thoughtText) => {
+        return '<details class="thought-details" open><summary class="thought-summary">💭 <span class="thinking-spinner-sm"></span> <span>AI đang suy nghĩ...</span></summary><div class="thought-content">' + thoughtText.trim() + '</div></details>';
+      });
+
+      // 3. Code blocks
       escaped = escaped.replace(/\`\`\`(\\w*)?\\n([\\s\\S]*?)\`\`\`/g, (match, lang, code) => {
         return '<div class="code-container"><div class="code-header"><span>' + (lang || 'code') + '</span><button class="copy-btn" onclick="copyCode(this)">Sao chép</button></div><pre><code>' + code + '</code></pre></div>';
       });
 
-      // Inline code
+      // 4. Inline code
       escaped = escaped.replace(/\`([^\`]+)\`/g, '<code>$1</code>');
 
-      // Bold & Italic
+      // 5. Bold & Italic
       escaped = escaped.replace(/\\*\\*([^\\*]+)\\*\\*/g, '<strong>$1</strong>');
       escaped = escaped.replace(/\\*([^\\*]+)\\*/g, '<em>$1</em>');
 
-      // Line breaks
+      // 6. Line breaks
       escaped = escaped.replace(/\\n/g, '<br>');
 
       return escaped;
@@ -756,6 +903,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       });
 
       promptInput.value = '';
+      updateState({ draftPrompt: '' });
       setStreamingState(true);
     }
 
@@ -767,12 +915,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
 
     function toggleHistoryDrawer(open) {
+      let isOpen;
       if (typeof open === 'boolean') {
+        isOpen = open;
         if (open) historyDrawer.classList.add('open');
         else historyDrawer.classList.remove('open');
       } else {
-        historyDrawer.classList.toggle('open');
+        isOpen = historyDrawer.classList.toggle('open');
       }
+      updateState({ isDrawerOpen: isOpen });
     }
 
     function formatTime(isoString) {
@@ -877,6 +1028,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       switch (msg.type) {
         case 'SESSION_STATE_SYNC': {
           activeSessionId = msg.activeSessionId;
+          updateState({ activeSessionId });
           currentSessionTitle.textContent = msg.activeSessionTitle || 'Đoạn chat mới';
           renderMessages(msg.messages);
           renderSessionList(msg.sessions, activeSessionId);
@@ -901,14 +1053,29 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           const div = document.createElement('div');
           div.className = 'message assistant';
           div.id = msg.message.id;
-          div.innerHTML = '<div class="message-meta">' + msg.message.timestamp + ' - NesCode AI</div><div class="message-content" id="content-' + msg.message.id + '"><em>Đang suy nghĩ...</em></div>';
+          div.innerHTML = '<div class="message-meta">' + msg.message.timestamp + ' - NesCode AI</div>' +
+            '<div class="thinking-banner" id="banner-' + msg.message.id + '">' +
+              '<div class="thinking-spinner"></div>' +
+              '<div class="thinking-info">' +
+                '<span class="thinking-title">NesCode đang suy nghĩ...</span>' +
+                '<span class="thinking-subtitle">Đang phân tích ngữ cảnh và suy luận câu trả lời</span>' +
+              '</div>' +
+            '</div>' +
+            '<div class="message-content" id="content-' + msg.message.id + '"></div>';
           transcript.appendChild(div);
           transcript.scrollTop = transcript.scrollHeight;
           break;
         }
 
         case 'STREAM_CHUNK': {
+          const banner = document.getElementById('banner-' + msg.messageId);
           const contentBox = document.getElementById('content-' + msg.messageId);
+          
+          // Khi đã bắt đầu có nội dung thực tế (và không nằm trong thẻ suy nghĩ)
+          if (banner && msg.fullContent && !msg.fullContent.startsWith('<think>')) {
+            banner.style.display = 'none';
+          }
+
           if (contentBox) {
             contentBox.innerHTML = renderMarkdown(msg.fullContent);
             transcript.scrollTop = transcript.scrollHeight;
@@ -919,6 +1086,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         case 'STREAM_COMPLETED':
         case 'STREAM_ERROR': {
           setStreamingState(false);
+          const banner = document.getElementById('banner-' + msg.messageId);
+          if (banner) {
+            banner.style.display = 'none';
+          }
           const contentBox = document.getElementById('content-' + msg.messageId);
           if (contentBox) {
             contentBox.innerHTML = renderMarkdown(msg.fullContent);
