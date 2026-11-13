@@ -49,18 +49,23 @@ export async function handleChat(
     ...(shouldStream ? { stream: true } : {})
   };
 
+  console.log(`[Worker:${requestId}] Model: ${requestedModel}, Stream: ${shouldStream}, Messages: ${modelMessages.length}`);
+
   try {
     if (shouldStream) {
-      // 3A. Streaming response qua Workers AI
+      console.log(`[Worker:${requestId}] Đang gọi env.AI.run với stream=true...`);
       const upstreamResponse = await env.AI.run(requestedModel, aiInput, {
         stream: true
       });
+
+      console.log(`[Worker:${requestId}] upstreamResponse nhận được:`, typeof upstreamResponse, upstreamResponse?.constructor?.name, 'isReadableStream:', upstreamResponse instanceof ReadableStream);
 
       if (upstreamResponse instanceof ReadableStream) {
         return createSseResponseStream(upstreamResponse, requestId, requestedModel);
       }
 
       // Fallback nếu upstream không trả ReadableStream
+      console.warn(`[Worker:${requestId}] upstreamResponse không phải ReadableStream! Trả về JSON fallback.`);
       const textOutput = upstreamResponse?.response || upstreamResponse?.text || '';
       const totalMs = Date.now() - startTime;
       const fallbackBody: ChatResponse = {
@@ -83,6 +88,7 @@ export async function handleChat(
       return jsonResponse(fallbackBody, 200, { 'X-Request-ID': requestId });
     } else {
       // 3B. JSON response non-streaming
+      console.log(`[Worker:${requestId}] Đang gọi env.AI.run non-streaming...`);
       const upstreamResponse = await env.AI.run(requestedModel, aiInput);
       const textOutput =
         typeof upstreamResponse === 'string'
@@ -90,6 +96,7 @@ export async function handleChat(
           : upstreamResponse?.response || upstreamResponse?.output || upstreamResponse?.choices?.[0]?.message?.content || '';
 
       const totalMs = Date.now() - startTime;
+      console.log(`[Worker:${requestId}] Hoàn thành non-streaming sau ${totalMs}ms. Output length: ${textOutput.length}`);
       const responseBody: ChatResponse = {
         requestId,
         ok: true,
@@ -110,7 +117,8 @@ export async function handleChat(
 
       return jsonResponse(responseBody, 200, { 'X-Request-ID': requestId });
     }
-  } catch (err) {
+  } catch (err: any) {
+    console.error(`[Worker:${requestId}] Lỗi khi chạy Workers AI:`, err?.message || err);
     const { status, detail } = normalizeAiError(err);
     return errorResponse(requestId, detail.code, detail.message, status, detail.retryable);
   }
