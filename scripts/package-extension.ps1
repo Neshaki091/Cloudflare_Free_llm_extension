@@ -1,4 +1,4 @@
-﻿# Kịch bản đóng gói NesCode Extension thành file .vsix chính thức
+# Kịch bản đóng gói NesCode Extension thành file .vsix chính thức
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 

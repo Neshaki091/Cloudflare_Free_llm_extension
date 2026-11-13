@@ -8,8 +8,13 @@ import { registerCheckConnectionCommand } from './commands/checkConnection.js';
 import { registerOpenChatCommand } from './commands/openChat.js';
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
+  const outputChannel = vscode.window.createOutputChannel('NesCode AI');
+  context.subscriptions.push(outputChannel);
+
   const secretManager = new SecretManager(context.secrets);
   const client = new WorkerClient(secretManager);
+  client.setOutputChannel(outputChannel);
+
   const sessionManager = new SessionManager(context.workspaceState);
 
   // 1. Đăng ký WebviewView Chat Panel với SessionManager theo workspace
@@ -29,10 +34,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     registerOpenChatCommand()
   );
 
+  outputChannel.appendLine('[NesCode] Tiện ích NesCode for Antigravity đã kích hoạt thành công.');
+
   // 3. Tự động kiểm tra cấu hình lần đầu khởi động
   const conn = await client.getConfig();
   if (!conn) {
-    // Nếu chưa cấu hình, gợi ý người dùng cấu hình
     vscode.window
       .showInformationMessage(
         'Chào mừng đến với NesCode for Antigravity! Vui lòng cấu hình Cloudflare Worker URL và API Key để bắt đầu.',
@@ -43,6 +49,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           vscode.commands.executeCommand('nescode.configureConnection');
         }
       });
+  } else {
+    outputChannel.appendLine(`[NesCode] Worker URL hiện tại: ${conn.baseUrl}`);
   }
 }
 

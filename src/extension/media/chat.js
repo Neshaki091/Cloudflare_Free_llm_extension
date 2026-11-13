@@ -334,3 +334,4 @@ window.addEventListener('message', (event) => {
 
 // Thông báo Webview đã sẵn sàng nhận dữ liệu ban đầu
 vscode.postMessage({ type: 'WEBVIEW_READY' });
+

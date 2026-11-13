@@ -15,7 +15,18 @@ export interface WorkerConnectionConfig {
 }
 
 export class WorkerClient {
+  private outputChannel?: vscode.OutputChannel;
+
   constructor(private readonly secretManager: SecretManager) {}
+
+  setOutputChannel(channel: vscode.OutputChannel): void {
+    this.outputChannel = channel;
+  }
+
+  private log(message: string): void {
+    const time = new Date().toLocaleTimeString('vi-VN');
+    this.outputChannel?.appendLine(`[${time}] ${message}`);
+  }
 
   /**
    * Lấy cấu hình kết nối hiện tại (Worker URL từ settings và API Key từ SecretStorage).
@@ -49,6 +60,7 @@ export class WorkerClient {
 
     try {
       const url = `${conn.baseUrl}/v1/health`;
+      this.log(`Kiểm tra kết nối GET ${url}`);
       const response = await fetch(url, {
         method: 'GET',
         headers: {
@@ -65,15 +77,19 @@ export class WorkerClient {
             errMsg = errBody.error.message;
           }
         } catch {}
+        this.log(`Lỗi kết nối: ${errMsg}`);
         return { ok: false, error: errMsg };
       }
 
       const data = (await response.json()) as HealthResponse;
+      this.log(`Kết nối thành công tới ${data.service} (${data.defaultModel})`);
       return { ok: true, data };
     } catch (err: any) {
+      const msg = `Không thể kết nối tới Worker (${err?.message || 'Network error'}). Hãy kiểm tra lại kết nối mạng hoặc Worker URL.`;
+      this.log(`Lỗi mạng: ${msg}`);
       return {
         ok: false,
-        error: `Không thể kết nối tới Worker (${err?.message || 'Network error'}). Hãy kiểm tra lại kết nối mạng hoặc Worker URL.`
+        error: msg
       };
     }
   }
@@ -97,7 +113,9 @@ export class WorkerClient {
       if (response.ok) {
         return (await response.json()) as ModelsResponse;
       }
-    } catch {}
+    } catch (err: any) {
+      this.log(`Lỗi lấy models: ${err?.message}`);
+    }
     return null;
   }
 
@@ -111,6 +129,7 @@ export class WorkerClient {
   ): Promise<void> {
     const conn = await this.getConfig();
     if (!conn) {
+      this.log('Yêu cầu bị từ chối: Chưa cấu hình kết nối Worker URL / API Key.');
       callbacks.onError?.({
         code: 'UNAUTHORIZED',
         message: 'Chưa cấu hình kết nối. Vui lòng bấm vào biểu tượng bánh răng để nhập Worker URL và API Key.',
@@ -122,6 +141,25 @@ export class WorkerClient {
     const url = `${conn.baseUrl}/v1/chat`;
     const requestId = chatRequest.requestId || crypto.randomUUID();
 
+    const config = vscode.workspace.getConfiguration('nescode');
+    const timeoutMs = config.get<number>('requestTimeoutMs', 60000);
+
+    this.log(`Gửi yêu cầu POST ${url} [ReqID: ${requestId}] (Timeout: ${timeoutMs / 1000}s)`);
+
+    // Thiết lập timeout controller
+    const timeoutController = new AbortController();
+    const timeoutTimer = setTimeout(() => {
+      timeoutController.abort(new Error(`Hết thời gian chờ phản hồi (${timeoutMs / 1000}s)`));
+    }, timeoutMs);
+
+    // Kết hợp abort signals
+    const combinedAbortHandler = () => {
+      timeoutController.abort();
+    };
+    if (signal) {
+      signal.addEventListener('abort', combinedAbortHandler);
+    }
+
     try {
       const response = await fetch(url, {
         method: 'POST',
@@ -132,8 +170,10 @@ export class WorkerClient {
           Accept: 'text/event-stream, application/json'
         },
         body: JSON.stringify(chatRequest),
-        signal
+        signal: timeoutController.signal
       });
+
+      this.log(`Nhận phản hồi HTTP ${response.status} ${response.statusText} [ReqID: ${requestId}]`);
 
       if (!response.ok) {
         let errCode = 'INTERNAL_ERROR';
@@ -146,6 +186,7 @@ export class WorkerClient {
           }
         } catch {}
 
+        this.log(`Máy chủ trả về lỗi: [${errCode}] ${errMsg}`);
         callbacks.onError?.({
           code: errCode as any,
           message: errMsg,
@@ -155,6 +196,7 @@ export class WorkerClient {
       }
 
       const contentType = response.headers.get('content-type') || '';
+      this.log(`Content-Type phản hồi: ${contentType}`);
 
       // Nếu server trả về SSE stream
       if (contentType.includes('text/event-stream') && response.body) {
@@ -162,13 +204,16 @@ export class WorkerClient {
         const decoder = new TextDecoder('utf-8');
         const parser = new SseParser(callbacks);
 
+        let receivedChunks = 0;
         try {
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
+            receivedChunks++;
             const textChunk = decoder.decode(value, { stream: true });
             parser.feed(textChunk);
           }
+          this.log(`Đã đọc xong toàn bộ stream (${receivedChunks} chunks nhận được).`);
         } finally {
           parser.end();
           reader.releaseLock();
@@ -176,24 +221,32 @@ export class WorkerClient {
       } else {
         // Fallback nếu trả JSON thông thường
         const json = (await response.json()) as ChatResponse;
+        this.log(`Nhận phản hồi JSON đầy đủ: ok=${json.ok}`);
         if (json.ok && json.output?.content) {
           callbacks.onDelta?.({ text: json.output.content });
           callbacks.onDone?.({ requestId: json.requestId });
         }
       }
     } catch (err: any) {
-      if (err.name === 'AbortError') {
+      if (signal?.aborted) {
+        this.log('Người dùng đã bấm Dừng yêu cầu.');
         callbacks.onDelta?.({ text: '\n\n*(Đã dừng bởi người dùng)*' });
         callbacks.onDone?.({ requestId });
         return;
       }
 
+      const errorMsg = err?.message || 'Không thể gửi yêu cầu tới Worker.';
+      this.log(`Lỗi kết nối trong sendChatStream: ${errorMsg}`);
       callbacks.onError?.({
         code: 'INTERNAL_ERROR',
-        message: `Lỗi kết nối: ${err?.message || 'Không thể gửi yêu cầu tới Worker.'}`,
+        message: `Lỗi kết nối: ${errorMsg}`,
         retryable: true
       });
+    } finally {
+      clearTimeout(timeoutTimer);
+      if (signal) {
+        signal.removeEventListener('abort', combinedAbortHandler);
+      }
     }
   }
 }
-

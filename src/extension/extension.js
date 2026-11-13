@@ -158,6 +158,14 @@ var WorkerClient = class {
     this.secretManager = secretManager;
   }
   secretManager;
+  outputChannel;
+  setOutputChannel(channel) {
+    this.outputChannel = channel;
+  }
+  log(message) {
+    const time = (/* @__PURE__ */ new Date()).toLocaleTimeString("vi-VN");
+    this.outputChannel?.appendLine(`[${time}] ${message}`);
+  }
   /**
    * Lấy cấu hình kết nối hiện tại (Worker URL từ settings và API Key từ SecretStorage).
    */
@@ -186,6 +194,7 @@ var WorkerClient = class {
     }
     try {
       const url = `${conn.baseUrl}/v1/health`;
+      this.log(`Ki\u1EC3m tra k\u1EBFt n\u1ED1i GET ${url}`);
       const response = await fetch(url, {
         method: "GET",
         headers: {
@@ -202,14 +211,18 @@ var WorkerClient = class {
           }
         } catch {
         }
+        this.log(`L\u1ED7i k\u1EBFt n\u1ED1i: ${errMsg}`);
         return { ok: false, error: errMsg };
       }
       const data = await response.json();
+      this.log(`K\u1EBFt n\u1ED1i th\xE0nh c\xF4ng t\u1EDBi ${data.service} (${data.defaultModel})`);
       return { ok: true, data };
     } catch (err) {
+      const msg = `Kh\xF4ng th\u1EC3 k\u1EBFt n\u1ED1i t\u1EDBi Worker (${err?.message || "Network error"}). H\xE3y ki\u1EC3m tra l\u1EA1i k\u1EBFt n\u1ED1i m\u1EA1ng ho\u1EB7c Worker URL.`;
+      this.log(`L\u1ED7i m\u1EA1ng: ${msg}`);
       return {
         ok: false,
-        error: `Kh\xF4ng th\u1EC3 k\u1EBFt n\u1ED1i t\u1EDBi Worker (${err?.message || "Network error"}). H\xE3y ki\u1EC3m tra l\u1EA1i k\u1EBFt n\u1ED1i m\u1EA1ng ho\u1EB7c Worker URL.`
+        error: msg
       };
     }
   }
@@ -231,7 +244,8 @@ var WorkerClient = class {
       if (response.ok) {
         return await response.json();
       }
-    } catch {
+    } catch (err) {
+      this.log(`L\u1ED7i l\u1EA5y models: ${err?.message}`);
     }
     return null;
   }
@@ -241,6 +255,7 @@ var WorkerClient = class {
   async sendChatStream(chatRequest, callbacks, signal) {
     const conn = await this.getConfig();
     if (!conn) {
+      this.log("Y\xEAu c\u1EA7u b\u1ECB t\u1EEB ch\u1ED1i: Ch\u01B0a c\u1EA5u h\xECnh k\u1EBFt n\u1ED1i Worker URL / API Key.");
       callbacks.onError?.({
         code: "UNAUTHORIZED",
         message: "Ch\u01B0a c\u1EA5u h\xECnh k\u1EBFt n\u1ED1i. Vui l\xF2ng b\u1EA5m v\xE0o bi\u1EC3u t\u01B0\u1EE3ng b\xE1nh r\u0103ng \u0111\u1EC3 nh\u1EADp Worker URL v\xE0 API Key.",
@@ -250,6 +265,19 @@ var WorkerClient = class {
     }
     const url = `${conn.baseUrl}/v1/chat`;
     const requestId = chatRequest.requestId || crypto.randomUUID();
+    const config = vscode.workspace.getConfiguration("nescode");
+    const timeoutMs = config.get("requestTimeoutMs", 6e4);
+    this.log(`G\u1EEDi y\xEAu c\u1EA7u POST ${url} [ReqID: ${requestId}] (Timeout: ${timeoutMs / 1e3}s)`);
+    const timeoutController = new AbortController();
+    const timeoutTimer = setTimeout(() => {
+      timeoutController.abort(new Error(`H\u1EBFt th\u1EDDi gian ch\u1EDD ph\u1EA3n h\u1ED3i (${timeoutMs / 1e3}s)`));
+    }, timeoutMs);
+    const combinedAbortHandler = () => {
+      timeoutController.abort();
+    };
+    if (signal) {
+      signal.addEventListener("abort", combinedAbortHandler);
+    }
     try {
       const response = await fetch(url, {
         method: "POST",
@@ -260,8 +288,9 @@ var WorkerClient = class {
           Accept: "text/event-stream, application/json"
         },
         body: JSON.stringify(chatRequest),
-        signal
+        signal: timeoutController.signal
       });
+      this.log(`Nh\u1EADn ph\u1EA3n h\u1ED3i HTTP ${response.status} ${response.statusText} [ReqID: ${requestId}]`);
       if (!response.ok) {
         let errCode = "INTERNAL_ERROR";
         let errMsg = `HTTP ${response.status}: ${response.statusText}`;
@@ -273,6 +302,7 @@ var WorkerClient = class {
           }
         } catch {
         }
+        this.log(`M\xE1y ch\u1EE7 tr\u1EA3 v\u1EC1 l\u1ED7i: [${errCode}] ${errMsg}`);
         callbacks.onError?.({
           code: errCode,
           message: errMsg,
@@ -281,39 +311,52 @@ var WorkerClient = class {
         return;
       }
       const contentType = response.headers.get("content-type") || "";
+      this.log(`Content-Type ph\u1EA3n h\u1ED3i: ${contentType}`);
       if (contentType.includes("text/event-stream") && response.body) {
         const reader = response.body.getReader();
         const decoder = new TextDecoder("utf-8");
         const parser = new SseParser(callbacks);
+        let receivedChunks = 0;
         try {
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
+            receivedChunks++;
             const textChunk = decoder.decode(value, { stream: true });
             parser.feed(textChunk);
           }
+          this.log(`\u0110\xE3 \u0111\u1ECDc xong to\xE0n b\u1ED9 stream (${receivedChunks} chunks nh\u1EADn \u0111\u01B0\u1EE3c).`);
         } finally {
           parser.end();
           reader.releaseLock();
         }
       } else {
         const json = await response.json();
+        this.log(`Nh\u1EADn ph\u1EA3n h\u1ED3i JSON \u0111\u1EA7y \u0111\u1EE7: ok=${json.ok}`);
         if (json.ok && json.output?.content) {
           callbacks.onDelta?.({ text: json.output.content });
           callbacks.onDone?.({ requestId: json.requestId });
         }
       }
     } catch (err) {
-      if (err.name === "AbortError") {
+      if (signal?.aborted) {
+        this.log("Ng\u01B0\u1EDDi d\xF9ng \u0111\xE3 b\u1EA5m D\u1EEBng y\xEAu c\u1EA7u.");
         callbacks.onDelta?.({ text: "\n\n*(\u0110\xE3 d\u1EEBng b\u1EDFi ng\u01B0\u1EDDi d\xF9ng)*" });
         callbacks.onDone?.({ requestId });
         return;
       }
+      const errorMsg = err?.message || "Kh\xF4ng th\u1EC3 g\u1EEDi y\xEAu c\u1EA7u t\u1EDBi Worker.";
+      this.log(`L\u1ED7i k\u1EBFt n\u1ED1i trong sendChatStream: ${errorMsg}`);
       callbacks.onError?.({
         code: "INTERNAL_ERROR",
-        message: `L\u1ED7i k\u1EBFt n\u1ED1i: ${err?.message || "Kh\xF4ng th\u1EC3 g\u1EEDi y\xEAu c\u1EA7u t\u1EDBi Worker."}`,
+        message: `L\u1ED7i k\u1EBFt n\u1ED1i: ${errorMsg}`,
         retryable: true
       });
+    } finally {
+      clearTimeout(timeoutTimer);
+      if (signal) {
+        signal.removeEventListener("abort", combinedAbortHandler);
+      }
     }
   }
 };
@@ -903,8 +946,11 @@ function registerOpenChatCommand() {
 
 // src/extension/src/extension.ts
 async function activate(context) {
+  const outputChannel = vscode6.window.createOutputChannel("NesCode AI");
+  context.subscriptions.push(outputChannel);
   const secretManager = new SecretManager(context.secrets);
   const client = new WorkerClient(secretManager);
+  client.setOutputChannel(outputChannel);
   const sessionManager = new SessionManager(context.workspaceState);
   const chatProvider = new ChatViewProvider(context.extensionUri, client, sessionManager);
   context.subscriptions.push(
@@ -919,6 +965,7 @@ async function activate(context) {
   context.subscriptions.push(
     registerOpenChatCommand()
   );
+  outputChannel.appendLine("[NesCode] Ti\u1EC7n \xEDch NesCode for Antigravity \u0111\xE3 k\xEDch ho\u1EA1t th\xE0nh c\xF4ng.");
   const conn = await client.getConfig();
   if (!conn) {
     vscode6.window.showInformationMessage(
@@ -929,6 +976,8 @@ async function activate(context) {
         vscode6.commands.executeCommand("nescode.configureConnection");
       }
     });
+  } else {
+    outputChannel.appendLine(`[NesCode] Worker URL hi\u1EC7n t\u1EA1i: ${conn.baseUrl}`);
   }
 }
 function deactivate() {

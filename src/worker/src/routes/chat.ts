@@ -45,7 +45,8 @@ export async function handleChat(
   const aiInput: Record<string, unknown> = {
     messages: modelMessages,
     max_tokens: maxTokens,
-    temperature
+    temperature,
+    ...(shouldStream ? { stream: true } : {})
   };
 
   try {
@@ -114,4 +115,3 @@ export async function handleChat(
     return errorResponse(requestId, detail.code, detail.message, status, detail.retryable);
   }
 }
-
