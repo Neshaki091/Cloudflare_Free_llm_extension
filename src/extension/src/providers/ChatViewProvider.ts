@@ -126,6 +126,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           }
           break;
 
+        case 'CLOSE_VIEW':
+          try {
+            await vscode.commands.executeCommand('workbench.action.closeSidebar');
+          } catch {}
+          try {
+            await vscode.commands.executeCommand('workbench.action.closeAuxiliaryBar');
+          } catch {}
+          break;
+
         case 'REQUEST_EDITOR_CONTEXT':
           this.sendEditorContext();
           break;
@@ -423,6 +432,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       <button class="icon-btn" id="btnNewSession" title="Tạo đoạn chat mới trong dự án (+)">➕</button>
       <button class="icon-btn" id="btnHistory" title="Lịch sử các phiên chat (Dự án này)">📜</button>
       <button class="icon-btn" id="btnSettings" title="Cấu hình kết nối Worker">⚙</button>
+      <button class="icon-btn close-btn" id="btnCloseSidebar" title="Đóng bảng chat (✕)">✕</button>
     </div>
   </header>
 
@@ -449,7 +459,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   <footer>
     <div class="context-bar" id="contextBar">
-      <span id="contextInfo">📎 Không có file đang mở</span>
+      <div class="context-chip-wrap">
+        <span id="contextInfo">📎 Không có file đang mở</span>
+        <button class="chip-close-btn" id="btnRemoveContext" title="Bỏ đính kèm file này" style="display: none;">✕</button>
+      </div>
       <label><input type="checkbox" id="chkAttachContext" checked> Đính kèm Context Dự Án</label>
     </div>
     <div class="composer">

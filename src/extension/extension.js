@@ -912,6 +912,16 @@ var ChatViewProvider = class {
             await openFileInEditor(message.path);
           }
           break;
+        case "CLOSE_VIEW":
+          try {
+            await vscode4.commands.executeCommand("workbench.action.closeSidebar");
+          } catch {
+          }
+          try {
+            await vscode4.commands.executeCommand("workbench.action.closeAuxiliaryBar");
+          } catch {
+          }
+          break;
         case "REQUEST_EDITOR_CONTEXT":
           this.sendEditorContext();
           break;
@@ -1164,6 +1174,7 @@ ${wsSummary.fileTree}`;
       <button class="icon-btn" id="btnNewSession" title="T\u1EA1o \u0111o\u1EA1n chat m\u1EDBi trong d\u1EF1 \xE1n (+)">\u2795</button>
       <button class="icon-btn" id="btnHistory" title="L\u1ECBch s\u1EED c\xE1c phi\xEAn chat (D\u1EF1 \xE1n n\xE0y)">\u{1F4DC}</button>
       <button class="icon-btn" id="btnSettings" title="C\u1EA5u h\xECnh k\u1EBFt n\u1ED1i Worker">\u2699</button>
+      <button class="icon-btn close-btn" id="btnCloseSidebar" title="\u0110\xF3ng b\u1EA3ng chat (\u2715)">\u2715</button>
     </div>
   </header>
 
@@ -1190,7 +1201,10 @@ ${wsSummary.fileTree}`;
 
   <footer>
     <div class="context-bar" id="contextBar">
-      <span id="contextInfo">\u{1F4CE} Kh\xF4ng c\xF3 file \u0111ang m\u1EDF</span>
+      <div class="context-chip-wrap">
+        <span id="contextInfo">\u{1F4CE} Kh\xF4ng c\xF3 file \u0111ang m\u1EDF</span>
+        <button class="chip-close-btn" id="btnRemoveContext" title="B\u1ECF \u0111\xEDnh k\xE8m file n\xE0y" style="display: none;">\u2715</button>
+      </div>
       <label><input type="checkbox" id="chkAttachContext" checked> \u0110\xEDnh k\xE8m Context D\u1EF1 \xC1n</label>
     </div>
     <div class="composer">

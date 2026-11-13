@@ -12,6 +12,8 @@ const btnToggleHistory = document.getElementById('btnToggleHistory');
 const btnCloseDrawer = document.getElementById('btnCloseDrawer');
 const btnClearAll = document.getElementById('btnClearAll');
 const btnSettings = document.getElementById('btnSettings');
+const btnCloseSidebar = document.getElementById('btnCloseSidebar');
+const btnRemoveContext = document.getElementById('btnRemoveContext');
 const contextInfo = document.getElementById('contextInfo');
 const chkAttachContext = document.getElementById('chkAttachContext');
 const currentSessionTitle = document.getElementById('currentSessionTitle');
@@ -87,6 +89,7 @@ function renderMarkdown(rawText) {
       '</div>' +
       '<div class="action-card-body">' + codeContent.trim() + '</div>' +
       '<div class="action-card-footer">' +
+        '<button class="action-btn dismiss-btn" onclick="dismissActionCard(this)">✕ Bỏ qua</button>' +
         '<button class="action-btn apply-btn" onclick="applyFileAction(\'' + actionId + '\')">✓ Áp Dụng Thay Đổi</button>' +
       '</div>' +
     '</div>';
@@ -102,6 +105,7 @@ function renderMarkdown(rawText) {
       '</div>' +
       '<div class="action-card-body">' + cleanCmd + '</div>' +
       '<div class="action-card-footer">' +
+        '<button class="action-btn dismiss-btn" onclick="dismissActionCard(this)">✕ Bỏ qua</button>' +
         '<button class="action-btn run-btn" onclick="executeCommandAction(\'' + encodeURIComponent(cleanCmd) + '\')">▶ Chạy Trong Terminal</button>' +
       '</div>' +
     '</div>';
@@ -118,6 +122,7 @@ function renderMarkdown(rawText) {
       '</div>' +
       (cleanDesc ? '<div class="action-card-desc">' + cleanDesc + '</div>' : '') +
       '<div class="action-card-footer">' +
+        '<button class="action-btn dismiss-btn" onclick="dismissActionCard(this)">✕ Bỏ qua</button>' +
         '<button class="action-btn open-btn" onclick="openFileAction(\'' + encodeURIComponent(filePath) + '\')">👁 Mở Tệp Này</button>' +
       '</div>' +
     '</div>';
@@ -189,6 +194,18 @@ window.openFileAction = function(encodedPath) {
     type: 'OPEN_FILE',
     path: filePath
   });
+};
+
+window.dismissActionCard = function(button) {
+  const card = button.closest('.action-card');
+  if (card) {
+    card.style.opacity = '0';
+    card.style.transform = 'scale(0.96)';
+    card.style.transition = 'all 0.15s ease';
+    setTimeout(() => {
+      card.remove();
+    }, 150);
+  }
 };
 
 function sendPrompt() {
@@ -321,6 +338,34 @@ btnSettings.addEventListener('click', () => {
   vscode.postMessage({ type: 'OPEN_SETTINGS' });
 });
 
+if (btnCloseSidebar) {
+  btnCloseSidebar.addEventListener('click', () => {
+    vscode.postMessage({ type: 'CLOSE_VIEW' });
+  });
+}
+
+if (btnRemoveContext) {
+  btnRemoveContext.addEventListener('click', () => {
+    chkAttachContext.checked = false;
+    btnRemoveContext.style.display = 'none';
+    contextInfo.textContent = '📎 Đã bỏ chọn tệp đính kèm';
+    updateState({ attachContext: false });
+  });
+}
+
+// Bấm ra ngoài drawer để tự động đóng lại
+document.addEventListener('click', (e) => {
+  if (historyDrawer && historyDrawer.classList.contains('open')) {
+    if (
+      !historyDrawer.contains(e.target) &&
+      !btnHistory.contains(e.target) &&
+      !btnToggleHistory.contains(e.target)
+    ) {
+      toggleHistoryDrawer(false);
+    }
+  }
+});
+
 promptInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
@@ -419,10 +464,16 @@ window.addEventListener('message', (event) => {
     case 'UPDATE_CONTEXT': {
       if (!msg.hasContext) {
         contextInfo.textContent = '📎 Không có file đang mở (sẽ gửi Workspace Tree)';
-      } else if (msg.hasSelection) {
-        contextInfo.textContent = '📎 ' + msg.fileName + ' (' + msg.selectedLines + ' dòng chọn)';
+        if (btnRemoveContext) btnRemoveContext.style.display = 'none';
       } else {
-        contextInfo.textContent = '📎 ' + msg.fileName + ' (' + msg.language + ')';
+        if (msg.hasSelection) {
+          contextInfo.textContent = '📎 ' + msg.fileName + ' (' + msg.selectedLines + ' dòng chọn)';
+        } else {
+          contextInfo.textContent = '📎 ' + msg.fileName + ' (' + msg.language + ')';
+        }
+        if (btnRemoveContext && chkAttachContext.checked) {
+          btnRemoveContext.style.display = 'inline-flex';
+        }
       }
       break;
     }

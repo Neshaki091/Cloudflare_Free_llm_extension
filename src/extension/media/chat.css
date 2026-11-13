@@ -96,6 +96,18 @@ header {
   background: var(--input-border);
 }
 
+.icon-btn.close-btn {
+  font-size: 13px;
+  font-weight: 700;
+  opacity: 0.75;
+}
+
+.icon-btn.close-btn:hover {
+  opacity: 1;
+  color: #ff5252;
+  background: rgba(255, 82, 82, 0.15);
+}
+
 /* Drawer Lịch sử Sessions */
 #historyDrawer {
   display: none;
@@ -446,6 +458,34 @@ footer {
   border-radius: 4px;
 }
 
+.context-chip-wrap {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  max-width: 60%;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.chip-close-btn {
+  background: transparent;
+  border: none;
+  color: var(--fg);
+  cursor: pointer;
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 11px;
+  opacity: 0.6;
+  line-height: 1;
+}
+
+.chip-close-btn:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.2);
+  color: #ff5252;
+}
+
 .composer {
   display: flex;
   gap: 6px;
@@ -591,6 +631,18 @@ textarea:focus {
 .action-btn.open-btn {
   background: #007acc;
   color: #ffffff;
+}
+
+.action-btn.dismiss-btn {
+  background: transparent;
+  border: 1px solid var(--border-color);
+  color: var(--fg);
+  opacity: 0.75;
+}
+
+.action-btn.dismiss-btn:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .action-card-desc {
