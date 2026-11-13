@@ -58,6 +58,17 @@ chkAttachContext.addEventListener('change', () => {
   updateState({ attachContext: chkAttachContext.checked });
 });
 
+// Hàm giải mã HTML entities về ký tự gốc khi áp dụng code vào file hoặc chạy lệnh terminal
+function unescapeHtml(str) {
+  if (!str) return '';
+  return str
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&');
+}
+
 // Markdown & Agent Action parser chuẩn xác, an toàn
 function renderMarkdown(rawText) {
   if (!rawText) return '';
@@ -82,10 +93,12 @@ function renderMarkdown(rawText) {
   const writeFileRegex = new RegExp('&lt;action\\s+type="write_file"\\s+path="([^"]+)"&gt;([\\s\\S]*?)&lt;\\/action&gt;', 'gi');
   escaped = escaped.replace(writeFileRegex, (match, filePath, codeContent) => {
     const actionId = 'act-' + Math.random().toString(36).substring(2, 9);
-    window.__actionStore[actionId] = { path: filePath, content: codeContent.trim() };
+    const cleanFilePath = unescapeHtml(filePath.trim());
+    const realCode = unescapeHtml(codeContent.trim());
+    window.__actionStore[actionId] = { path: cleanFilePath, content: realCode };
     return '<div class="action-card file-action" id="' + actionId + '">' +
       '<div class="action-card-header">' +
-        '<div class="action-card-title">📝 Đề xuất cập nhật file: <span class="action-card-path">' + filePath + '</span></div>' +
+        '<div class="action-card-title">📝 Đề xuất cập nhật file: <span class="action-card-path">' + cleanFilePath + '</span></div>' +
       '</div>' +
       '<div class="action-card-body">' + codeContent.trim() + '</div>' +
       '<div class="action-card-footer">' +
@@ -99,6 +112,7 @@ function renderMarkdown(rawText) {
   const runCmdRegex = new RegExp('&lt;action\\s+type="run_command"&gt;([\\s\\S]*?)&lt;\\/action&gt;', 'gi');
   escaped = escaped.replace(runCmdRegex, (match, cmdContent) => {
     const cleanCmd = cmdContent.trim();
+    const realCmd = unescapeHtml(cleanCmd);
     return '<div class="action-card command-action">' +
       '<div class="action-card-header">' +
         '<div class="action-card-title">💻 Lệnh Terminal Đề Xuất</div>' +
@@ -106,7 +120,7 @@ function renderMarkdown(rawText) {
       '<div class="action-card-body">' + cleanCmd + '</div>' +
       '<div class="action-card-footer">' +
         '<button class="action-btn dismiss-btn" onclick="dismissActionCard(this)">✕ Bỏ qua</button>' +
-        '<button class="action-btn run-btn" onclick="executeCommandAction(\'' + encodeURIComponent(cleanCmd) + '\')">▶ Chạy Trong Terminal</button>' +
+        '<button class="action-btn run-btn" onclick="executeCommandAction(\'' + encodeURIComponent(realCmd) + '\')">▶ Chạy Trong Terminal</button>' +
       '</div>' +
     '</div>';
   });
@@ -114,16 +128,17 @@ function renderMarkdown(rawText) {
   // 4B. Parse Agent Action: read_file (Đề xuất xem/đọc file trong dự án)
   const readFileRegex = new RegExp('&lt;action\\s+type="read_file"\\s+path="([^"]+)"&gt;([\\s\\S]*?)&lt;\\/action&gt;', 'gi');
   escaped = escaped.replace(readFileRegex, (match, filePath, desc) => {
+    const cleanFilePath = unescapeHtml(filePath.trim());
     const cleanDesc = desc ? desc.trim() : '';
     return '<div class="action-card file-action">' +
       '<div class="action-card-header">' +
         '<div class="action-card-title">📖 Tệp Dự Án Cần Xem</div>' +
-        '<div class="action-card-path">' + filePath + '</div>' +
+        '<div class="action-card-path">' + cleanFilePath + '</div>' +
       '</div>' +
       (cleanDesc ? '<div class="action-card-desc">' + cleanDesc + '</div>' : '') +
       '<div class="action-card-footer">' +
         '<button class="action-btn dismiss-btn" onclick="dismissActionCard(this)">✕ Bỏ qua</button>' +
-        '<button class="action-btn open-btn" onclick="openFileAction(\'' + encodeURIComponent(filePath) + '\')">👁 Mở Tệp Này</button>' +
+        '<button class="action-btn open-btn" onclick="openFileAction(\'' + encodeURIComponent(cleanFilePath) + '\')">👁 Mở Tệp Này</button>' +
       '</div>' +
     '</div>';
   });
