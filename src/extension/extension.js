@@ -458,10 +458,10 @@ var ChatViewProvider = class {
     this.view = webviewView;
     webviewView.webview.options = {
       enableScripts: true,
-      localResourceRoots: [this.extensionUri]
+      localResourceRoots: [vscode2.Uri.joinPath(this.extensionUri, "media")]
     };
     this.currentSession = await this.sessionManager.getOrCreateActiveSession();
-    webviewView.webview.html = this.getHtmlForWebview();
+    webviewView.webview.html = this.getHtmlForWebview(webviewView.webview);
     webviewView.webview.onDidReceiveMessage(async (message) => {
       switch (message.type) {
         case "WEBVIEW_READY":
@@ -648,490 +648,100 @@ var ChatViewProvider = class {
       }
     };
     let lastSaveTime = Date.now();
-    await this.client.sendChatStream(
-      chatRequest,
-      {
-        onDelta: (delta) => {
-          assistantMsg.content += delta.text;
-          this.view?.webview.postMessage({
-            type: "STREAM_CHUNK",
-            messageId: assistantMsgId,
-            delta: delta.text,
-            fullContent: assistantMsg.content
-          });
-          const now = Date.now();
-          if (now - lastSaveTime > 1200) {
-            lastSaveTime = now;
+    try {
+      await this.client.sendChatStream(
+        chatRequest,
+        {
+          onDelta: (delta) => {
+            assistantMsg.content += delta.text;
+            this.view?.webview.postMessage({
+              type: "STREAM_CHUNK",
+              messageId: assistantMsgId,
+              delta: delta.text,
+              fullContent: assistantMsg.content
+            });
+            const now = Date.now();
+            if (now - lastSaveTime > 1200) {
+              lastSaveTime = now;
+              if (this.currentSession) {
+                this.sessionManager.updateSessionMessages(
+                  this.currentSession.id,
+                  this.currentSession.messages
+                ).catch(() => {
+                });
+              }
+            }
+          },
+          onError: async (err) => {
+            assistantMsg.content += `
+
+\u26A0\uFE0F **[L\u1ED7i ${err.code}]**: ${err.message}`;
+            this.view?.webview.postMessage({
+              type: "STREAM_ERROR",
+              messageId: assistantMsgId,
+              error: err,
+              fullContent: assistantMsg.content
+            });
             if (this.currentSession) {
-              this.sessionManager.updateSessionMessages(
+              await this.sessionManager.updateSessionMessages(
                 this.currentSession.id,
                 this.currentSession.messages
-              ).catch(() => {
-              });
+              );
+            }
+          },
+          onDone: async () => {
+            this.view?.webview.postMessage({
+              type: "STREAM_COMPLETED",
+              messageId: assistantMsgId,
+              fullContent: assistantMsg.content
+            });
+            this.currentAbortController = void 0;
+            if (this.currentSession) {
+              await this.sessionManager.updateSessionMessages(
+                this.currentSession.id,
+                this.currentSession.messages
+              );
+              await this.syncSessionStateToWebview();
             }
           }
         },
-        onError: async (err) => {
-          assistantMsg.content += `
+        this.currentAbortController.signal
+      );
+    } catch (error) {
+      const errorMsg = error?.message || String(error);
+      assistantMsg.content += `
 
-\u26A0\uFE0F **[L\u1ED7i ${err.code}]**: ${err.message}`;
-          this.view?.webview.postMessage({
-            type: "STREAM_ERROR",
-            messageId: assistantMsgId,
-            error: err,
-            fullContent: assistantMsg.content
-          });
-          if (this.currentSession) {
-            await this.sessionManager.updateSessionMessages(
-              this.currentSession.id,
-              this.currentSession.messages
-            );
-          }
-        },
-        onDone: async () => {
-          this.view?.webview.postMessage({
-            type: "STREAM_COMPLETED",
-            messageId: assistantMsgId,
-            fullContent: assistantMsg.content
-          });
-          this.currentAbortController = void 0;
-          if (this.currentSession) {
-            await this.sessionManager.updateSessionMessages(
-              this.currentSession.id,
-              this.currentSession.messages
-            );
-            await this.syncSessionStateToWebview();
-          }
-        }
-      },
-      this.currentAbortController.signal
-    );
+\u26A0\uFE0F **[L\u1ED7i k\u1EBFt n\u1ED1i]**: ${errorMsg}`;
+      this.view?.webview.postMessage({
+        type: "STREAM_ERROR",
+        messageId: assistantMsgId,
+        error: { code: "NETWORK_ERROR", message: errorMsg },
+        fullContent: assistantMsg.content
+      });
+      this.currentAbortController = void 0;
+      if (this.currentSession) {
+        await this.sessionManager.updateSessionMessages(
+          this.currentSession.id,
+          this.currentSession.messages
+        );
+      }
+    }
   }
-  getHtmlForWebview() {
+  getHtmlForWebview(webview) {
+    const scriptUri = webview.asWebviewUri(
+      vscode2.Uri.joinPath(this.extensionUri, "media", "chat.js")
+    );
+    const styleUri = webview.asWebviewUri(
+      vscode2.Uri.joinPath(this.extensionUri, "media", "chat.css")
+    );
     return `<!DOCTYPE html>
 <html lang="vi">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src ${webview.cspSource} 'unsafe-inline';">
   <title>NesCode AI Chat</title>
-  <style>
-    :root {
-      --bg: var(--vscode-sideBar-background, #1e1e1e);
-      --fg: var(--vscode-foreground, #cccccc);
-      --btn-bg: var(--vscode-button-background, #007acc);
-      --btn-fg: var(--vscode-button-foreground, #ffffff);
-      --btn-hover: var(--vscode-button-hoverBackground, #0062a3);
-      --input-bg: var(--vscode-input-background, #2d2d2d);
-      --input-fg: var(--vscode-input-foreground, #cccccc);
-      --input-border: var(--vscode-input-border, #3c3c3c);
-      --user-bubble: var(--vscode-editor-inactiveSelectionBackground, #264f78);
-      --ai-bubble: var(--vscode-editor-background, #181818);
-      --border-color: var(--vscode-panel-border, #333333);
-      --code-bg: var(--vscode-textCodeBlock-background, rgba(0, 0, 0, 0.3));
-      --hover-bg: rgba(255, 255, 255, 0.08);
-      --danger-fg: #f44336;
-      --accent-color: #007acc;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: var(--vscode-font-family, sans-serif);
-      font-size: var(--vscode-font-size, 13px);
-      color: var(--fg);
-      background-color: var(--bg);
-      display: flex;
-      flex-direction: column;
-      height: 100vh;
-      overflow: hidden;
-      position: relative;
-    }
-    header {
-      padding: 6px 10px;
-      border-bottom: 1px solid var(--border-color);
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      background: var(--bg);
-      gap: 6px;
-    }
-    .session-title-badge {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 12px;
-      font-weight: 600;
-      cursor: pointer;
-      padding: 3px 6px;
-      border-radius: 4px;
-      max-width: 65%;
-      overflow: hidden;
-      white-space: nowrap;
-      text-overflow: ellipsis;
-    }
-    .session-title-badge:hover {
-      background: var(--hover-bg);
-    }
-    .status-dot {
-      width: 8px;
-      height: 8px;
-      min-width: 8px;
-      border-radius: 50%;
-      background: #4caf50;
-    }
-    .header-actions {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-    }
-    .icon-btn {
-      background: transparent;
-      border: none;
-      color: var(--fg);
-      cursor: pointer;
-      padding: 4px 6px;
-      border-radius: 4px;
-      opacity: 0.85;
-      font-size: 13px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .icon-btn:hover { opacity: 1; background: var(--input-border); }
-
-    /* Drawer L\u1ECBch s\u1EED Sessions */
-    #historyDrawer {
-      display: none;
-      position: absolute;
-      top: 37px;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: var(--bg);
-      z-index: 100;
-      flex-direction: column;
-      border-bottom: 1px solid var(--border-color);
-      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-    }
-    #historyDrawer.open {
-      display: flex;
-    }
-    .drawer-header {
-      padding: 8px 12px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      border-bottom: 1px solid var(--border-color);
-      background: rgba(255, 255, 255, 0.03);
-    }
-    .drawer-header h5 {
-      font-size: 12px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-    .drawer-actions {
-      display: flex;
-      gap: 6px;
-      align-items: center;
-    }
-    .drawer-btn {
-      font-size: 11px;
-      background: transparent;
-      border: 1px solid var(--border-color);
-      color: var(--fg);
-      padding: 2px 6px;
-      border-radius: 3px;
-      cursor: pointer;
-    }
-    .drawer-btn:hover { background: var(--hover-bg); }
-    .drawer-btn.danger { color: var(--danger-fg); border-color: rgba(244, 67, 54, 0.4); }
-    .drawer-btn.danger:hover { background: rgba(244, 67, 54, 0.15); }
-    .session-list {
-      flex: 1;
-      overflow-y: auto;
-      padding: 6px;
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-    }
-    .session-item {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 8px 10px;
-      border-radius: 6px;
-      border: 1px solid transparent;
-      cursor: pointer;
-      background: rgba(255, 255, 255, 0.02);
-      transition: background 0.15s;
-    }
-    .session-item:hover {
-      background: var(--hover-bg);
-    }
-    .session-item.active {
-      border-color: var(--btn-bg);
-      background: rgba(0, 122, 204, 0.12);
-    }
-    .session-item-info {
-      flex: 1;
-      overflow: hidden;
-    }
-    .session-item-title {
-      font-size: 12px;
-      font-weight: 500;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .session-item-meta {
-      font-size: 10px;
-      opacity: 0.6;
-      margin-top: 2px;
-    }
-    .session-item-del {
-      background: transparent;
-      border: none;
-      color: var(--fg);
-      opacity: 0.4;
-      cursor: pointer;
-      padding: 4px;
-      font-size: 12px;
-      border-radius: 3px;
-    }
-    .session-item-del:hover {
-      opacity: 1;
-      color: var(--danger-fg);
-      background: rgba(244, 67, 54, 0.15);
-    }
-
-    /* V\xF9ng h\u1ED9i tho\u1EA1i */
-    #transcript {
-      flex: 1;
-      overflow-y: auto;
-      padding: 12px;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-    }
-    .empty-state {
-      margin: auto;
-      text-align: center;
-      padding: 24px 12px;
-      opacity: 0.7;
-    }
-    .empty-state h4 { margin-bottom: 8px; }
-    .empty-state p { font-size: 12px; line-height: 1.5; }
-    .message {
-      display: flex;
-      flex-direction: column;
-      max-width: 95%;
-      word-break: break-word;
-    }
-    .message.user {
-      align-self: flex-end;
-      background: var(--user-bubble);
-      color: #ffffff;
-      padding: 8px 12px;
-      border-radius: 12px 12px 2px 12px;
-    }
-    .message.assistant {
-      align-self: flex-start;
-      background: var(--ai-bubble);
-      border: 1px solid var(--border-color);
-      padding: 10px 12px;
-      border-radius: 12px 12px 12px 2px;
-      width: 100%;
-    }
-    .message-meta {
-      font-size: 10px;
-      opacity: 0.6;
-      margin-bottom: 6px;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-    .message-content {
-      line-height: 1.5;
-    }
-
-    /* Hi\u1EC7u \u1EE9ng xoay tr\xF2n v\xE0 tr\u1EA1ng th\xE1i suy ngh\u0129 */
-    @keyframes nescode-spin {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
-    }
-    @keyframes nescode-pulse {
-      0%, 100% { opacity: 0.7; }
-      50% { opacity: 1; }
-    }
-
-    .thinking-banner {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 8px 12px;
-      background: rgba(0, 122, 204, 0.08);
-      border: 1px solid rgba(0, 122, 204, 0.25);
-      border-left: 3px solid var(--btn-bg);
-      border-radius: 6px;
-      margin-bottom: 8px;
-      animation: nescode-pulse 2s ease-in-out infinite;
-    }
-    .thinking-spinner {
-      width: 16px;
-      height: 16px;
-      min-width: 16px;
-      border: 2px solid rgba(0, 122, 204, 0.2);
-      border-top-color: var(--btn-bg);
-      border-radius: 50%;
-      animation: nescode-spin 0.8s linear infinite;
-    }
-    .thinking-spinner-sm {
-      display: inline-block;
-      width: 12px;
-      height: 12px;
-      min-width: 12px;
-      border: 2px solid rgba(0, 122, 204, 0.3);
-      border-top-color: var(--btn-bg);
-      border-radius: 50%;
-      animation: nescode-spin 0.8s linear infinite;
-      vertical-align: middle;
-      margin-right: 4px;
-    }
-    .thinking-info {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-    }
-    .thinking-title {
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--fg);
-    }
-    .thinking-subtitle {
-      font-size: 11px;
-      opacity: 0.75;
-    }
-
-    /* Kh\u1ED1i suy ngh\u0129 c\xF3 th\u1EC3 thu g\u1ECDn (Thinking / Reasoning Block) */
-    .thought-details {
-      background: rgba(255, 255, 255, 0.03);
-      border: 1px solid var(--border-color);
-      border-left: 3px solid #ff9800;
-      border-radius: 6px;
-      padding: 6px 10px;
-      margin: 6px 0 10px 0;
-      font-size: 12px;
-    }
-    .thought-summary {
-      cursor: pointer;
-      font-weight: 500;
-      color: #ffb74d;
-      outline: none;
-      user-select: none;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-    .thought-summary:hover {
-      text-decoration: underline;
-    }
-    .thought-content {
-      margin-top: 6px;
-      padding-top: 6px;
-      border-top: 1px dashed rgba(255, 255, 255, 0.1);
-      color: rgba(255, 255, 255, 0.8);
-      font-style: italic;
-      line-height: 1.45;
-      white-space: pre-wrap;
-    }
-
-    .code-container {
-      position: relative;
-      background: var(--code-bg);
-      border-radius: 6px;
-      margin: 8px 0;
-      overflow: hidden;
-      border: 1px solid var(--border-color);
-    }
-    .code-header {
-      display: flex;
-      justify-content: space-between;
-      padding: 4px 8px;
-      background: rgba(255,255,255,0.05);
-      font-size: 10px;
-      text-transform: uppercase;
-      opacity: 0.8;
-    }
-    pre {
-      padding: 8px;
-      overflow-x: auto;
-      font-family: var(--vscode-editor-font-family, monospace);
-      font-size: 12px;
-    }
-    .copy-btn {
-      background: transparent;
-      border: none;
-      color: var(--fg);
-      cursor: pointer;
-      font-size: 11px;
-    }
-    .copy-btn:hover { text-decoration: underline; }
-
-    footer {
-      border-top: 1px solid var(--border-color);
-      padding: 8px 12px;
-      background: var(--bg);
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-    }
-    .context-bar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      font-size: 11px;
-      background: rgba(255,255,255,0.05);
-      padding: 4px 8px;
-      border-radius: 4px;
-    }
-    .composer {
-      display: flex;
-      gap: 6px;
-    }
-    textarea {
-      flex: 1;
-      min-height: 40px;
-      max-height: 120px;
-      padding: 8px;
-      background: var(--input-bg);
-      color: var(--input-fg);
-      border: 1px solid var(--input-border);
-      border-radius: 4px;
-      resize: vertical;
-      font-family: inherit;
-      font-size: inherit;
-    }
-    textarea:focus { outline: 1px solid var(--btn-bg); }
-    .send-btn {
-      padding: 0 14px;
-      background: var(--btn-bg);
-      color: var(--btn-fg);
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-weight: 500;
-    }
-    .send-btn:hover { background: var(--btn-hover); }
-    .stop-btn {
-      padding: 0 12px;
-      background: #f44336;
-      color: #fff;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      display: none;
-      font-weight: 500;
-    }
-  </style>
+  <link rel="stylesheet" href="${styleUri}">
 </head>
 <body>
   <header>
@@ -1180,321 +790,7 @@ var ChatViewProvider = class {
     </div>
   </footer>
 
-  <script>
-    const vscode = acquireVsCodeApi();
-    const transcript = document.getElementById('transcript');
-    const emptyState = document.getElementById('emptyState');
-    const promptInput = document.getElementById('promptInput');
-    const btnSend = document.getElementById('btnSend');
-    const btnStop = document.getElementById('btnStop');
-    const btnNewSession = document.getElementById('btnNewSession');
-    const btnHistory = document.getElementById('btnHistory');
-    const btnToggleHistory = document.getElementById('btnToggleHistory');
-    const btnCloseDrawer = document.getElementById('btnCloseDrawer');
-    const btnClearAll = document.getElementById('btnClearAll');
-    const btnSettings = document.getElementById('btnSettings');
-    const contextInfo = document.getElementById('contextInfo');
-    const chkAttachContext = document.getElementById('chkAttachContext');
-    const currentSessionTitle = document.getElementById('currentSessionTitle');
-    const historyDrawer = document.getElementById('historyDrawer');
-    const sessionList = document.getElementById('sessionList');
-
-    let isStreaming = false;
-    let activeSessionId = '';
-
-    // Kh\xF4i ph\u1EE5c Persistent State c\u1EE7a Webview (draft text, checkbox, drawer)
-    const savedState = vscode.getState() || {};
-    if (savedState.draftPrompt) {
-      promptInput.value = savedState.draftPrompt;
-    }
-    if (typeof savedState.attachContext === 'boolean') {
-      chkAttachContext.checked = savedState.attachContext;
-    }
-    if (savedState.isDrawerOpen) {
-      historyDrawer.classList.add('open');
-    }
-
-    function updateState(partial) {
-      const current = vscode.getState() || {};
-      vscode.setState({ ...current, ...partial });
-    }
-
-    // T\u1EF1 \u0111\u1ED9ng l\u01B0u b\u1EA3n nh\xE1p khi ng\u01B0\u1EDDi d\xF9ng g\xF5
-    promptInput.addEventListener('input', () => {
-      updateState({ draftPrompt: promptInput.value });
-    });
-
-    chkAttachContext.addEventListener('change', () => {
-      updateState({ attachContext: chkAttachContext.checked });
-    });
-
-    // Markdown & Reasoning parser
-    function renderMarkdown(rawText) {
-      if (!rawText) return '';
-      let escaped = rawText
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
-
-      // 1. Parse kh\u1ED1i suy ngh\u0129 ho\xE0n ch\u1EC9nh <think>...</think> ho\u1EB7c <thought>...</thought>
-      escaped = escaped.replace(/&lt;(?:think|thought)&gt;([sS]*?)&lt;/(?:think|thought)&gt;/gi, (match, thoughtText) => {
-        return '<details class="thought-details" open><summary class="thought-summary">\u{1F4AD} <span>Qu\xE1 tr\xECnh suy ngh\u0129 c\u1EE7a AI</span></summary><div class="thought-content">' + thoughtText.trim() + '</div></details>';
-      });
-
-      // 2. Parse kh\u1ED1i suy ngh\u0129 \u0111ang stream d\u1EDF <think>... ch\u01B0a \u0111\xF3ng
-      escaped = escaped.replace(/&lt;(?:think|thought)&gt;([sS]*)$/gi, (match, thoughtText) => {
-        return '<details class="thought-details" open><summary class="thought-summary">\u{1F4AD} <span class="thinking-spinner-sm"></span> <span>AI \u0111ang suy ngh\u0129...</span></summary><div class="thought-content">' + thoughtText.trim() + '</div></details>';
-      });
-
-      // 3. Code blocks
-      escaped = escaped.replace(/\`\`\`(\\w*)?\\n([\\s\\S]*?)\`\`\`/g, (match, lang, code) => {
-        return '<div class="code-container"><div class="code-header"><span>' + (lang || 'code') + '</span><button class="copy-btn" onclick="copyCode(this)">Sao ch\xE9p</button></div><pre><code>' + code + '</code></pre></div>';
-      });
-
-      // 4. Inline code
-      escaped = escaped.replace(/\`([^\`]+)\`/g, '<code>$1</code>');
-
-      // 5. Bold & Italic
-      escaped = escaped.replace(/\\*\\*([^\\*]+)\\*\\*/g, '<strong>$1</strong>');
-      escaped = escaped.replace(/\\*([^\\*]+)\\*/g, '<em>$1</em>');
-
-      // 6. Line breaks
-      escaped = escaped.replace(/\\n/g, '<br>');
-
-      return escaped;
-    }
-
-    window.copyCode = function(button) {
-      const container = button.closest('.code-container');
-      const code = container.querySelector('code').innerText;
-      vscode.postMessage({ type: 'COPY_TEXT', text: code });
-    };
-
-    function sendPrompt() {
-      const text = promptInput.value.trim();
-      if (!text || isStreaming) return;
-
-      if (emptyState) emptyState.style.display = 'none';
-
-      vscode.postMessage({
-        type: 'SEND_PROMPT',
-        prompt: text,
-        mode: 'chat',
-        attachContext: chkAttachContext.checked
-      });
-
-      promptInput.value = '';
-      updateState({ draftPrompt: '' });
-      setStreamingState(true);
-    }
-
-    function setStreamingState(streaming) {
-      isStreaming = streaming;
-      btnSend.style.display = streaming ? 'none' : 'block';
-      btnStop.style.display = streaming ? 'block' : 'none';
-      promptInput.disabled = streaming;
-    }
-
-    function toggleHistoryDrawer(open) {
-      let isOpen;
-      if (typeof open === 'boolean') {
-        isOpen = open;
-        if (open) historyDrawer.classList.add('open');
-        else historyDrawer.classList.remove('open');
-      } else {
-        isOpen = historyDrawer.classList.toggle('open');
-      }
-      updateState({ isDrawerOpen: isOpen });
-    }
-
-    function formatTime(isoString) {
-      try {
-        const d = new Date(isoString);
-        return d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) + ' ' + d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' });
-      } catch {
-        return '';
-      }
-    }
-
-    function renderMessages(messages) {
-      transcript.innerHTML = '';
-      if (!messages || messages.length === 0) {
-        transcript.appendChild(emptyState);
-        emptyState.style.display = 'block';
-        return;
-      }
-
-      emptyState.style.display = 'none';
-      messages.forEach((m) => {
-        const div = document.createElement('div');
-        div.className = 'message ' + m.role;
-        div.id = m.id;
-        const metaPrefix = m.role === 'user' ? '' : ' - NesCode AI';
-        div.innerHTML = '<div class="message-meta">' + m.timestamp + metaPrefix + '</div><div class="message-content" id="content-' + m.id + '">' + renderMarkdown(m.content) + '</div>';
-        transcript.appendChild(div);
-      });
-      transcript.scrollTop = transcript.scrollHeight;
-    }
-
-    function renderSessionList(sessions, activeId) {
-      sessionList.innerHTML = '';
-      if (!sessions || sessions.length === 0) {
-        sessionList.innerHTML = '<div style="padding: 12px; text-align: center; opacity: 0.6; font-size: 11px;">Ch\u01B0a c\xF3 l\u1ECBch s\u1EED phi\xEAn chat n\xE0o</div>';
-        return;
-      }
-
-      sessions.forEach((s) => {
-        const item = document.createElement('div');
-        item.className = 'session-item' + (s.id === activeId ? ' active' : '');
-        
-        const info = document.createElement('div');
-        info.className = 'session-item-info';
-        info.innerHTML = '<div class="session-item-title">' + (s.id === activeId ? '\u{1F4AC} ' : '\u{1F5E8}\uFE0F ') + s.title + '</div>' +
-          '<div class="session-item-meta">' + s.messageCount + ' tin nh\u1EAFn \u2022 ' + formatTime(s.updatedAt) + '</div>';
-        
-        info.addEventListener('click', () => {
-          vscode.postMessage({ type: 'SWITCH_SESSION', sessionId: s.id });
-          toggleHistoryDrawer(false);
-        });
-
-        const delBtn = document.createElement('button');
-        delBtn.className = 'session-item-del';
-        delBtn.title = 'X\xF3a phi\xEAn chat n\xE0y';
-        delBtn.textContent = '\u{1F5D1}';
-        delBtn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          vscode.postMessage({ type: 'DELETE_SESSION', sessionId: s.id });
-        });
-
-        item.appendChild(info);
-        item.appendChild(delBtn);
-        sessionList.appendChild(item);
-      });
-    }
-
-    btnSend.addEventListener('click', sendPrompt);
-
-    btnStop.addEventListener('click', () => {
-      vscode.postMessage({ type: 'STOP_GENERATION' });
-      setStreamingState(false);
-    });
-
-    btnNewSession.addEventListener('click', () => {
-      vscode.postMessage({ type: 'CREATE_NEW_SESSION' });
-      toggleHistoryDrawer(false);
-    });
-
-    btnHistory.addEventListener('click', () => toggleHistoryDrawer());
-    btnToggleHistory.addEventListener('click', () => toggleHistoryDrawer());
-    btnCloseDrawer.addEventListener('click', () => toggleHistoryDrawer(false));
-
-    btnClearAll.addEventListener('click', () => {
-      vscode.postMessage({ type: 'CLEAR_ALL_SESSIONS' });
-      toggleHistoryDrawer(false);
-    });
-
-    btnSettings.addEventListener('click', () => {
-      vscode.postMessage({ type: 'OPEN_SETTINGS' });
-    });
-
-    promptInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        sendPrompt();
-      }
-    });
-
-    window.addEventListener('message', (event) => {
-      const msg = event.data;
-      switch (msg.type) {
-        case 'SESSION_STATE_SYNC': {
-          activeSessionId = msg.activeSessionId;
-          updateState({ activeSessionId });
-          currentSessionTitle.textContent = msg.activeSessionTitle || '\u0110o\u1EA1n chat m\u1EDBi';
-          renderMessages(msg.messages);
-          renderSessionList(msg.sessions, activeSessionId);
-          break;
-        }
-
-        case 'USER_MESSAGE_ADDED': {
-          if (emptyState) emptyState.style.display = 'none';
-          if (msg.sessionTitle) {
-            currentSessionTitle.textContent = msg.sessionTitle;
-          }
-          const div = document.createElement('div');
-          div.className = 'message user';
-          div.id = msg.message.id;
-          div.innerHTML = '<div class="message-meta">' + msg.message.timestamp + '</div><div class="message-content">' + renderMarkdown(msg.message.content) + '</div>';
-          transcript.appendChild(div);
-          transcript.scrollTop = transcript.scrollHeight;
-          break;
-        }
-
-        case 'ASSISTANT_STREAM_START': {
-          const div = document.createElement('div');
-          div.className = 'message assistant';
-          div.id = msg.message.id;
-          div.innerHTML = '<div class="message-meta">' + msg.message.timestamp + ' - NesCode AI</div>' +
-            '<div class="thinking-banner" id="banner-' + msg.message.id + '">' +
-              '<div class="thinking-spinner"></div>' +
-              '<div class="thinking-info">' +
-                '<span class="thinking-title">NesCode \u0111ang suy ngh\u0129...</span>' +
-                '<span class="thinking-subtitle">\u0110ang ph\xE2n t\xEDch ng\u1EEF c\u1EA3nh v\xE0 suy lu\u1EADn c\xE2u tr\u1EA3 l\u1EDDi</span>' +
-              '</div>' +
-            '</div>' +
-            '<div class="message-content" id="content-' + msg.message.id + '"></div>';
-          transcript.appendChild(div);
-          transcript.scrollTop = transcript.scrollHeight;
-          break;
-        }
-
-        case 'STREAM_CHUNK': {
-          const banner = document.getElementById('banner-' + msg.messageId);
-          const contentBox = document.getElementById('content-' + msg.messageId);
-          
-          // Khi \u0111\xE3 b\u1EAFt \u0111\u1EA7u c\xF3 n\u1ED9i dung th\u1EF1c t\u1EBF (v\xE0 kh\xF4ng n\u1EB1m trong th\u1EBB suy ngh\u0129)
-          if (banner && msg.fullContent && !msg.fullContent.startsWith('<think>')) {
-            banner.style.display = 'none';
-          }
-
-          if (contentBox) {
-            contentBox.innerHTML = renderMarkdown(msg.fullContent);
-            transcript.scrollTop = transcript.scrollHeight;
-          }
-          break;
-        }
-
-        case 'STREAM_COMPLETED':
-        case 'STREAM_ERROR': {
-          setStreamingState(false);
-          const banner = document.getElementById('banner-' + msg.messageId);
-          if (banner) {
-            banner.style.display = 'none';
-          }
-          const contentBox = document.getElementById('content-' + msg.messageId);
-          if (contentBox) {
-            contentBox.innerHTML = renderMarkdown(msg.fullContent);
-            transcript.scrollTop = transcript.scrollHeight;
-          }
-          break;
-        }
-
-        case 'UPDATE_CONTEXT': {
-          if (!msg.hasContext) {
-            contextInfo.textContent = '\u{1F4CE} Kh\xF4ng c\xF3 file \u0111ang m\u1EDF';
-          } else if (msg.hasSelection) {
-            contextInfo.textContent = '\u{1F4CE} ' + msg.fileName + ' (' + msg.selectedLines + ' d\xF2ng ch\u1ECDn)';
-          } else {
-            contextInfo.textContent = '\u{1F4CE} ' + msg.fileName + ' (' + msg.language + ')';
-          }
-          break;
-        }
-      }
-    });
-
-    // Th\xF4ng b\xE1o Webview \u0111\xE3 s\u1EB5n s\xE0ng nh\u1EADn d\u1EEF li\u1EC7u ban \u0111\u1EA7u
-    vscode.postMessage({ type: 'WEBVIEW_READY' });
-  </script>
+  <script src="${scriptUri}"></script>
 </body>
 </html>`;
   }
