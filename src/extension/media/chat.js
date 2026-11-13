@@ -1,4 +1,4 @@
-// NesCode AI Chat Client Script
+// NesCode AI Chat Client Script (Agentic Edition)
 const vscode = acquireVsCodeApi();
 
 const transcript = document.getElementById('transcript');
@@ -20,6 +20,7 @@ const sessionList = document.getElementById('sessionList');
 
 let isStreaming = false;
 let activeSessionId = '';
+window.__actionStore = window.__actionStore || {};
 
 // Khôi phục Persistent State của Webview (draft text, checkbox, drawer)
 try {
@@ -55,7 +56,7 @@ chkAttachContext.addEventListener('change', () => {
   updateState({ attachContext: chkAttachContext.checked });
 });
 
-// Markdown & Reasoning parser chuẩn xác, an toàn
+// Markdown & Agent Action parser chuẩn xác, an toàn
 function renderMarkdown(rawText) {
   if (!rawText) return '';
   let escaped = rawText
@@ -75,24 +76,55 @@ function renderMarkdown(rawText) {
     return '<details class="thought-details" open><summary class="thought-summary">💭 <span class="thinking-spinner-sm"></span> <span>AI đang suy nghĩ...</span></summary><div class="thought-content">' + thoughtText.trim() + '</div></details>';
   });
 
-  // 3. Code blocks
+  // 3. Parse Agent Action: write_file (Đề xuất ghi hoặc sửa file)
+  const writeFileRegex = new RegExp('&lt;action\\s+type="write_file"\\s+path="([^"]+)"&gt;([\\s\\S]*?)&lt;\\/action&gt;', 'gi');
+  escaped = escaped.replace(writeFileRegex, (match, filePath, codeContent) => {
+    const actionId = 'act-' + Math.random().toString(36).substring(2, 9);
+    window.__actionStore[actionId] = { path: filePath, content: codeContent.trim() };
+    return '<div class="action-card file-action" id="' + actionId + '">' +
+      '<div class="action-card-header">' +
+        '<div class="action-card-title">📝 Đề xuất cập nhật file: <span class="action-card-path">' + filePath + '</span></div>' +
+      '</div>' +
+      '<div class="action-card-body">' + codeContent.trim() + '</div>' +
+      '<div class="action-card-footer">' +
+        '<button class="action-btn apply-btn" onclick="applyFileAction(\'' + actionId + '\')">✓ Áp Dụng Thay Đổi</button>' +
+      '</div>' +
+    '</div>';
+  });
+
+  // 4. Parse Agent Action: run_command (Đề xuất chạy lệnh terminal)
+  const runCmdRegex = new RegExp('&lt;action\\s+type="run_command"&gt;([\\s\\S]*?)&lt;\\/action&gt;', 'gi');
+  escaped = escaped.replace(runCmdRegex, (match, cmdContent) => {
+    const cleanCmd = cmdContent.trim();
+    return '<div class="action-card command-action">' +
+      '<div class="action-card-header">' +
+        '<div class="action-card-title">💻 Lệnh Terminal Đề Xuất</div>' +
+      '</div>' +
+      '<div class="action-card-body">' + cleanCmd + '</div>' +
+      '<div class="action-card-footer">' +
+        '<button class="action-btn run-btn" onclick="executeCommandAction(\'' + encodeURIComponent(cleanCmd) + '\')">▶ Chạy Trong Terminal</button>' +
+      '</div>' +
+    '</div>';
+  });
+
+  // 5. Code blocks thông thường
   const codeBlockRegex = new RegExp('```(\\w*)?\\r?\\n([\\s\\S]*?)```', 'g');
   escaped = escaped.replace(codeBlockRegex, (match, lang, code) => {
     return '<div class="code-container"><div class="code-header"><span>' + (lang || 'code') + '</span><button class="copy-btn" onclick="copyCode(this)">Sao chép</button></div><pre><code>' + code + '</code></pre></div>';
   });
 
-  // 4. Inline code
+  // 6. Inline code
   const inlineCodeRegex = new RegExp('`([^`]+)`', 'g');
   escaped = escaped.replace(inlineCodeRegex, '<code>$1</code>');
 
-  // 5. Bold & Italic
+  // 7. Bold & Italic
   const boldRegex = new RegExp('\\*\\*([^\\*]+)\\*\\*', 'g');
   escaped = escaped.replace(boldRegex, '<strong>$1</strong>');
 
   const italicRegex = new RegExp('\\*([^\\*]+)\\*', 'g');
   escaped = escaped.replace(italicRegex, '<em>$1</em>');
 
-  // 6. Line breaks
+  // 8. Line breaks
   escaped = escaped.replace(/\n/g, '<br>');
 
   return escaped;
@@ -104,6 +136,35 @@ window.copyCode = function(button) {
     const code = container.querySelector('code').innerText;
     vscode.postMessage({ type: 'COPY_TEXT', text: code });
   }
+};
+
+window.applyFileAction = function(actionId) {
+  const act = window.__actionStore && window.__actionStore[actionId];
+  if (act) {
+    vscode.postMessage({
+      type: 'APPLY_FILE_ACTION',
+      actionId,
+      path: act.path,
+      content: act.content
+    });
+    const card = document.getElementById(actionId);
+    if (card) {
+      const btn = card.querySelector('.apply-btn');
+      if (btn) {
+        btn.className = 'action-btn applied';
+        btn.textContent = '✓ Đang áp dụng...';
+        btn.disabled = true;
+      }
+    }
+  }
+};
+
+window.executeCommandAction = function(encodedCmd) {
+  const cmd = decodeURIComponent(encodedCmd);
+  vscode.postMessage({
+    type: 'EXECUTE_TERMINAL_COMMAND',
+    command: cmd
+  });
 };
 
 function sendPrompt() {
@@ -168,7 +229,7 @@ function renderMessages(messages) {
     const div = document.createElement('div');
     div.className = 'message ' + m.role;
     div.id = m.id;
-    const metaPrefix = m.role === 'user' ? '' : ' - NesCode AI';
+    const metaPrefix = m.role === 'user' ? '' : ' - NesCode AI Agent';
     div.innerHTML = '<div class="message-meta">' + m.timestamp + metaPrefix + '</div><div class="message-content" id="content-' + m.id + '">' + renderMarkdown(m.content) + '</div>';
     transcript.appendChild(div);
   });
@@ -274,12 +335,12 @@ window.addEventListener('message', (event) => {
       const div = document.createElement('div');
       div.className = 'message assistant';
       div.id = msg.message.id;
-      div.innerHTML = '<div class="message-meta">' + msg.message.timestamp + ' - NesCode AI</div>' +
+      div.innerHTML = '<div class="message-meta">' + msg.message.timestamp + ' - NesCode AI Agent</div>' +
         '<div class="thinking-banner" id="banner-' + msg.message.id + '">' +
           '<div class="thinking-spinner"></div>' +
           '<div class="thinking-info">' +
-            '<span class="thinking-title">NesCode đang suy nghĩ...</span>' +
-            '<span class="thinking-subtitle">Đang phân tích ngữ cảnh và suy luận câu trả lời</span>' +
+            '<span class="thinking-title">NesCode Agent đang suy nghĩ...</span>' +
+            '<span class="thinking-subtitle">Đang phân tích cấu trúc dự án và lập kế hoạch xử lý</span>' +
           '</div>' +
         '</div>' +
         '<div class="message-content" id="content-' + msg.message.id + '"></div>';
@@ -319,9 +380,21 @@ window.addEventListener('message', (event) => {
       break;
     }
 
+    case 'ACTION_APPLIED': {
+      const card = document.getElementById(msg.actionId);
+      if (card) {
+        const btn = card.querySelector('.apply-btn, .applied');
+        if (btn) {
+          btn.className = 'action-btn applied';
+          btn.textContent = '✓ Đã áp dụng thành công';
+        }
+      }
+      break;
+    }
+
     case 'UPDATE_CONTEXT': {
       if (!msg.hasContext) {
-        contextInfo.textContent = '📎 Không có file đang mở';
+        contextInfo.textContent = '📎 Không có file đang mở (sẽ gửi Workspace Tree)';
       } else if (msg.hasSelection) {
         contextInfo.textContent = '📎 ' + msg.fileName + ' (' + msg.selectedLines + ' dòng chọn)';
       } else {
@@ -334,4 +407,3 @@ window.addEventListener('message', (event) => {
 
 // Thông báo Webview đã sẵn sàng nhận dữ liệu ban đầu
 vscode.postMessage({ type: 'WEBVIEW_READY' });
-

@@ -494,3 +494,102 @@ textarea:focus {
   font-weight: 500;
 }
 
+
+
+/* =========================================
+   AGENT ACTION CARDS (Phong cách Cline)
+   ========================================= */
+.action-card {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  margin: 10px 0;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.02);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.action-card.file-action {
+  border-left: 4px solid #4caf50;
+}
+
+.action-card.command-action {
+  border-left: 4px solid #2196f3;
+}
+
+.action-card-header {
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.04);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--border-color);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.action-card-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.action-card-path {
+  font-family: var(--vscode-editor-font-family, monospace);
+  color: #81c784;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.action-card-body {
+  padding: 8px 12px;
+  max-height: 250px;
+  overflow-y: auto;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 12px;
+  background: rgba(0, 0, 0, 0.25);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.action-card-footer {
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.02);
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  border-top: 1px solid var(--border-color);
+}
+
+.action-btn {
+  padding: 5px 12px;
+  border-radius: 4px;
+  border: none;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: opacity 0.15s;
+}
+
+.action-btn:hover {
+  opacity: 0.9;
+}
+
+.action-btn.apply-btn {
+  background: #2e7d32;
+  color: #ffffff;
+}
+
+.action-btn.run-btn {
+  background: #1565c0;
+  color: #ffffff;
+}
+
+.action-btn.applied {
+  background: rgba(255, 255, 255, 0.1);
+  color: #81c784;
+  cursor: default;
+}

@@ -24,6 +24,7 @@ export interface ContextFile {
 export interface RequestContext {
   selection?: ContextSelection;
   files?: ContextFile[];
+  workspaceTree?: string;
 }
 
 export interface ChatOptions {

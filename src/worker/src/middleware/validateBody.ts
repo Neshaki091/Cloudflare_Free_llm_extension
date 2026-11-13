@@ -212,6 +212,10 @@ export async function validateChatRequestBody(
         });
       }
     }
+
+    if (typeof parsed.context.workspaceTree === 'string') {
+      sanitizedContext.workspaceTree = parsed.context.workspaceTree.slice(0, 8000);
+    }
   }
 
   // 7. Chuẩn hóa options

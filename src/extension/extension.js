@@ -34,7 +34,7 @@ __export(extension_exports, {
   deactivate: () => deactivate
 });
 module.exports = __toCommonJS(extension_exports);
-var vscode6 = __toESM(require("vscode"));
+var vscode8 = __toESM(require("vscode"));
 
 // src/extension/src/security/secretStorage.ts
 var API_KEY_SECRET_KEY = "nescode_api_key";
@@ -484,7 +484,143 @@ var SessionManager = class {
 };
 
 // src/extension/src/providers/ChatViewProvider.ts
+var vscode4 = __toESM(require("vscode"));
+
+// src/extension/src/context/workspaceContext.ts
 var vscode2 = __toESM(require("vscode"));
+function isExcluded(name, relativePath) {
+  const lowerName = name.toLowerCase();
+  const lowerPath = relativePath.toLowerCase().replace(/\\/g, "/");
+  const excludedDirs = [
+    "node_modules",
+    ".git",
+    ".antigravity-ide",
+    ".gemini",
+    "dist",
+    "build",
+    "coverage",
+    ".next",
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".idea",
+    ".vscode"
+  ];
+  for (const dir of excludedDirs) {
+    if (lowerName === dir || lowerPath.startsWith(dir + "/") || lowerPath.includes("/" + dir + "/")) {
+      return true;
+    }
+  }
+  if (lowerName === ".env" || lowerName.startsWith(".env.") || lowerName.endsWith(".pem") || lowerName.endsWith(".key") || lowerName.includes("credentials") || lowerName.includes("secret")) {
+    return true;
+  }
+  return false;
+}
+async function getWorkspaceSummary(maxFiles = 60, maxDepth = 3) {
+  const folders = vscode2.workspace.workspaceFolders;
+  if (!folders || folders.length === 0) {
+    return null;
+  }
+  const rootUri = folders[0].uri;
+  const rootName = folders[0].name;
+  let totalFiles = 0;
+  const lines = [];
+  async function walk(dirUri, depth, prefix) {
+    if (depth > maxDepth || totalFiles >= maxFiles) {
+      return;
+    }
+    try {
+      const entries = await vscode2.workspace.fs.readDirectory(dirUri);
+      entries.sort((a, b) => {
+        if (a[1] === vscode2.FileType.Directory && b[1] !== vscode2.FileType.Directory) return -1;
+        if (a[1] !== vscode2.FileType.Directory && b[1] === vscode2.FileType.Directory) return 1;
+        return a[0].localeCompare(b[0]);
+      });
+      for (let i = 0; i < entries.length; i++) {
+        if (totalFiles >= maxFiles) break;
+        const [name, type] = entries[i];
+        const itemUri = vscode2.Uri.joinPath(dirUri, name);
+        const relativePath = vscode2.workspace.asRelativePath(itemUri, false);
+        if (isExcluded(name, relativePath)) {
+          continue;
+        }
+        const isLast = i === entries.length - 1;
+        const pointer = isLast ? "\u2514\u2500\u2500 " : "\u251C\u2500\u2500 ";
+        const nextPrefix = prefix + (isLast ? "    " : "\u2502   ");
+        if (type === vscode2.FileType.Directory) {
+          lines.push(`${prefix}${pointer}\u{1F4C1} ${name}/`);
+          await walk(itemUri, depth + 1, nextPrefix);
+        } else if (type === vscode2.FileType.File) {
+          totalFiles++;
+          lines.push(`${prefix}${pointer}\u{1F4C4} ${name}`);
+        }
+      }
+    } catch {
+    }
+  }
+  await walk(rootUri, 1, "");
+  let manifestInfo;
+  try {
+    const pkgUri = vscode2.Uri.joinPath(rootUri, "package.json");
+    const bytes = await vscode2.workspace.fs.readFile(pkgUri);
+    const text = new TextDecoder("utf-8").decode(bytes);
+    const pkg = JSON.parse(text);
+    manifestInfo = `T\xEAn g\xF3i: ${pkg.name || "N/A"}, Phi\xEAn b\u1EA3n: ${pkg.version || "N/A"}
+Dependencies: ${Object.keys(pkg.dependencies || {}).join(", ") || "kh\xF4ng c\xF3"}
+DevDependencies: ${Object.keys(pkg.devDependencies || {}).join(", ") || "kh\xF4ng c\xF3"}`;
+  } catch {
+  }
+  return {
+    rootName,
+    fileTree: lines.join("\n"),
+    manifestInfo,
+    fileCount: totalFiles
+  };
+}
+
+// src/extension/src/agent/patchManager.ts
+var vscode3 = __toESM(require("vscode"));
+async function applyFileChange(relativePath, newContent) {
+  const folders = vscode3.workspace.workspaceFolders;
+  if (!folders || folders.length === 0) {
+    return { ok: false, message: "Kh\xF4ng t\xECm th\u1EA5y workspace \u0111ang m\u1EDF." };
+  }
+  const cleanPath = relativePath.trim().replace(/\\/g, "/").replace(/^\/+/, "");
+  if (!cleanPath || cleanPath.includes("..")) {
+    return { ok: false, message: "\u0110\u01B0\u1EDDng d\u1EABn file kh\xF4ng an to\xE0n ho\u1EB7c ch\u1EE9a path traversal." };
+  }
+  const targetUri = vscode3.Uri.joinPath(folders[0].uri, cleanPath);
+  try {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(newContent);
+    await vscode3.workspace.fs.writeFile(targetUri, data);
+    const doc = await vscode3.workspace.openTextDocument(targetUri);
+    await vscode3.window.showTextDocument(doc, { preview: false });
+    return {
+      ok: true,
+      message: `\u0110\xE3 c\u1EADp nh\u1EADt th\xE0nh c\xF4ng file: ${cleanPath}`,
+      uri: targetUri
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      message: `L\u1ED7i khi ghi file ${cleanPath}: ${err?.message || err}`
+    };
+  }
+}
+async function executeTerminalCommand(commandText) {
+  const cleanCmd = commandText.trim();
+  if (!cleanCmd) return false;
+  let terminal = vscode3.window.terminals.find((t) => t.name === "NesCode Terminal");
+  if (!terminal) {
+    terminal = vscode3.window.createTerminal("NesCode Terminal");
+  }
+  terminal.show();
+  terminal.sendText(cleanCmd);
+  return true;
+}
+
+// src/extension/src/providers/ChatViewProvider.ts
 var ChatViewProvider = class {
   constructor(extensionUri, client, sessionManager) {
     this.extensionUri = extensionUri;
@@ -501,7 +637,7 @@ var ChatViewProvider = class {
     this.view = webviewView;
     webviewView.webview.options = {
       enableScripts: true,
-      localResourceRoots: [vscode2.Uri.joinPath(this.extensionUri, "media")]
+      localResourceRoots: [vscode4.Uri.joinPath(this.extensionUri, "media")]
     };
     this.currentSession = await this.sessionManager.getOrCreateActiveSession();
     webviewView.webview.html = this.getHtmlForWebview(webviewView.webview);
@@ -542,18 +678,41 @@ var ChatViewProvider = class {
         case "CLEAR_ALL_SESSIONS":
           this.currentSession = await this.sessionManager.clearAllSessions();
           await this.syncSessionStateToWebview();
-          vscode2.window.showInformationMessage("\u0110\xE3 x\xF3a to\xE0n b\u1ED9 l\u1ECBch s\u1EED chat trong d\u1EF1 \xE1n n\xE0y.");
+          vscode4.window.showInformationMessage("\u0110\xE3 x\xF3a to\xE0n b\u1ED9 l\u1ECBch s\u1EED chat trong d\u1EF1 \xE1n n\xE0y.");
           break;
         case "OPEN_SETTINGS":
-          await vscode2.commands.executeCommand("nescode.configureConnection");
+          await vscode4.commands.executeCommand("nescode.configureConnection");
           break;
         case "CHECK_CONNECTION":
-          await vscode2.commands.executeCommand("nescode.checkConnection");
+          await vscode4.commands.executeCommand("nescode.checkConnection");
           break;
         case "COPY_TEXT":
           if (typeof message.text === "string") {
-            await vscode2.env.clipboard.writeText(message.text);
-            vscode2.window.showInformationMessage("\u0110\xE3 sao ch\xE9p v\xE0o b\u1ED9 nh\u1EDB t\u1EA1m.");
+            await vscode4.env.clipboard.writeText(message.text);
+            vscode4.window.showInformationMessage("\u0110\xE3 sao ch\xE9p v\xE0o b\u1ED9 nh\u1EDB t\u1EA1m.");
+          }
+          break;
+        case "APPLY_FILE_ACTION":
+          if (typeof message.path === "string" && typeof message.content === "string") {
+            const result = await applyFileChange(message.path, message.content);
+            if (result.ok) {
+              vscode4.window.showInformationMessage(`[NesCode] ${result.message}`);
+              this.view?.webview.postMessage({
+                type: "ACTION_APPLIED",
+                actionId: message.actionId,
+                success: true
+              });
+            } else {
+              vscode4.window.showErrorMessage(`[NesCode] ${result.message}`);
+            }
+          }
+          break;
+        case "EXECUTE_TERMINAL_COMMAND":
+          if (typeof message.command === "string") {
+            const ok = await executeTerminalCommand(message.command);
+            if (ok) {
+              vscode4.window.showInformationMessage(`[NesCode] \u0110\xE3 g\u1EEDi l\u1EC7nh t\u1EDBi Terminal: ${message.command}`);
+            }
           }
           break;
         case "REQUEST_EDITOR_CONTEXT":
@@ -561,10 +720,10 @@ var ChatViewProvider = class {
           break;
       }
     });
-    vscode2.window.onDidChangeActiveTextEditor(() => {
+    vscode4.window.onDidChangeActiveTextEditor(() => {
       this.sendEditorContext();
     });
-    vscode2.window.onDidChangeTextEditorSelection(() => {
+    vscode4.window.onDidChangeTextEditorSelection(() => {
       this.sendEditorContext();
     });
   }
@@ -591,7 +750,7 @@ var ChatViewProvider = class {
     });
   }
   sendEditorContext() {
-    const editor = vscode2.window.activeTextEditor;
+    const editor = vscode4.window.activeTextEditor;
     if (!editor) {
       this.view?.webview.postMessage({
         type: "UPDATE_CONTEXT",
@@ -608,7 +767,7 @@ var ChatViewProvider = class {
       type: "UPDATE_CONTEXT",
       hasContext: true,
       fileName,
-      filePath: vscode2.workspace.asRelativePath(doc.uri),
+      filePath: vscode4.workspace.asRelativePath(doc.uri),
       language: doc.languageId,
       hasSelection,
       selectedLines: hasSelection ? selection.end.line - selection.start.line + 1 : 0
@@ -622,29 +781,32 @@ var ChatViewProvider = class {
     }
     let contextData;
     if (attachContext) {
-      const editor = vscode2.window.activeTextEditor;
+      contextData = {};
+      const wsSummary = await getWorkspaceSummary();
+      if (wsSummary) {
+        contextData.workspaceTree = `D\u1EF1 \xE1n: ${wsSummary.rootName} (${wsSummary.fileCount} files)
+${wsSummary.manifestInfo ? wsSummary.manifestInfo + "\n" : ""}
+${wsSummary.fileTree}`;
+      }
+      const editor = vscode4.window.activeTextEditor;
       if (editor) {
         const doc = editor.document;
-        const relativePath = vscode2.workspace.asRelativePath(doc.uri);
+        const relativePath = vscode4.workspace.asRelativePath(doc.uri);
         const selectionText = doc.getText(editor.selection);
         if (!editor.selection.isEmpty && selectionText.trim()) {
-          contextData = {
-            selection: {
-              path: relativePath,
-              language: doc.languageId,
-              content: selectionText
-            }
+          contextData.selection = {
+            path: relativePath,
+            language: doc.languageId,
+            content: selectionText.slice(0, 1e4)
           };
         } else {
-          contextData = {
-            files: [
-              {
-                path: relativePath,
-                language: doc.languageId,
-                content: doc.getText()
-              }
-            ]
-          };
+          contextData.files = [
+            {
+              path: relativePath,
+              language: doc.languageId,
+              content: doc.getText().slice(0, 15e3)
+            }
+          ];
         }
       }
     }
@@ -772,10 +934,10 @@ var ChatViewProvider = class {
   }
   getHtmlForWebview(webview) {
     const scriptUri = webview.asWebviewUri(
-      vscode2.Uri.joinPath(this.extensionUri, "media", "chat.js")
+      vscode4.Uri.joinPath(this.extensionUri, "media", "chat.js")
     );
     const styleUri = webview.asWebviewUri(
-      vscode2.Uri.joinPath(this.extensionUri, "media", "chat.css")
+      vscode4.Uri.joinPath(this.extensionUri, "media", "chat.css")
     );
     return `<!DOCTYPE html>
 <html lang="vi">
@@ -824,7 +986,7 @@ var ChatViewProvider = class {
   <footer>
     <div class="context-bar" id="contextBar">
       <span id="contextInfo">\u{1F4CE} Kh\xF4ng c\xF3 file \u0111ang m\u1EDF</span>
-      <label><input type="checkbox" id="chkAttachContext" checked> \u0110\xEDnh k\xE8m Context</label>
+      <label><input type="checkbox" id="chkAttachContext" checked> \u0110\xEDnh k\xE8m Context D\u1EF1 \xC1n</label>
     </div>
     <div class="composer">
       <textarea id="promptInput" placeholder="Nh\u1EADp c\xE2u h\u1ECFi l\u1EADp tr\xECnh... (Enter \u0111\u1EC3 g\u1EEDi, Shift+Enter xu\u1ED1ng d\xF2ng)"></textarea>
@@ -840,12 +1002,12 @@ var ChatViewProvider = class {
 };
 
 // src/extension/src/commands/configureConnection.ts
-var vscode3 = __toESM(require("vscode"));
+var vscode5 = __toESM(require("vscode"));
 async function registerConfigureConnectionCommand(secretManager, client) {
-  return vscode3.commands.registerCommand("nescode.configureConnection", async () => {
-    const config = vscode3.workspace.getConfiguration("nescode");
+  return vscode5.commands.registerCommand("nescode.configureConnection", async () => {
+    const config = vscode5.workspace.getConfiguration("nescode");
     const currentUrl = config.get("apiBaseUrl", "");
-    const enteredUrl = await vscode3.window.showInputBox({
+    const enteredUrl = await vscode5.window.showInputBox({
       title: "NesCode: C\u1EA5u H\xECnh Worker URL",
       prompt: "Nh\u1EADp \u0111\u1ECBa ch\u1EC9 Cloudflare Worker c\u1EE7a b\u1EA1n (v\xED d\u1EE5: https://nescode-ai-gateway.xxx.workers.dev)",
       value: currentUrl || "https://",
@@ -865,7 +1027,7 @@ async function registerConfigureConnectionCommand(secretManager, client) {
       return;
     }
     const currentKey = await secretManager.getApiKey();
-    const enteredKey = await vscode3.window.showInputBox({
+    const enteredKey = await vscode5.window.showInputBox({
       title: "NesCode: C\u1EA5u H\xECnh API Key",
       prompt: "Nh\u1EADp kh\xF3a NESCODE_API_KEY m\xE0 b\u1EA1n \u0111\xE3 \u0111\u1EB7t tr\xEAn Worker (\u0110\u01B0\u1EE3c l\u01B0u m\xE3 h\xF3a an to\xE0n trong SecretStorage)",
       password: true,
@@ -882,22 +1044,22 @@ async function registerConfigureConnectionCommand(secretManager, client) {
       return;
     }
     const cleanUrl = enteredUrl.trim().replace(/\/+$/, "");
-    await config.update("apiBaseUrl", cleanUrl, vscode3.ConfigurationTarget.Global);
+    await config.update("apiBaseUrl", cleanUrl, vscode5.ConfigurationTarget.Global);
     await secretManager.setApiKey(enteredKey.trim());
-    vscode3.window.withProgress(
+    vscode5.window.withProgress(
       {
-        location: vscode3.ProgressLocation.Notification,
+        location: vscode5.ProgressLocation.Notification,
         title: "NesCode: \u0110ang ki\u1EC3m tra k\u1EBFt n\u1ED1i t\u1EDBi Cloudflare Worker...",
         cancellable: false
       },
       async () => {
         const health = await client.checkHealth();
         if (health.ok && health.data) {
-          vscode3.window.showInformationMessage(
+          vscode5.window.showInformationMessage(
             `K\u1EBFt n\u1ED1i th\xE0nh c\xF4ng! Worker: ${health.data.service} (Model: ${health.data.defaultModel})`
           );
         } else {
-          vscode3.window.showWarningMessage(
+          vscode5.window.showWarningMessage(
             `\u0110\xE3 l\u01B0u c\u1EA5u h\xECnh nh\u01B0ng ki\u1EC3m tra k\u1EBFt n\u1ED1i th\u1EA5t b\u1EA1i: ${health.error}`
           );
         }
@@ -907,28 +1069,28 @@ async function registerConfigureConnectionCommand(secretManager, client) {
 }
 
 // src/extension/src/commands/checkConnection.ts
-var vscode4 = __toESM(require("vscode"));
+var vscode6 = __toESM(require("vscode"));
 function registerCheckConnectionCommand(client) {
-  return vscode4.commands.registerCommand("nescode.checkConnection", async () => {
-    vscode4.window.withProgress(
+  return vscode6.commands.registerCommand("nescode.checkConnection", async () => {
+    vscode6.window.withProgress(
       {
-        location: vscode4.ProgressLocation.Notification,
+        location: vscode6.ProgressLocation.Notification,
         title: "NesCode: \u0110ang ki\u1EC3m tra tr\u1EA1ng th\xE1i k\u1EBFt n\u1ED1i Cloudflare Worker...",
         cancellable: false
       },
       async () => {
         const health = await client.checkHealth();
         if (health.ok && health.data) {
-          vscode4.window.showInformationMessage(
+          vscode6.window.showInformationMessage(
             `Tr\u1EA1ng th\xE1i: \u0110\xC3 K\u1EBET N\u1ED0I (Connected) | Model: ${health.data.defaultModel} | Streaming: ${health.data.streamingEnabled ? "B\u1EADt" : "T\u1EAFt"}`
           );
         } else {
-          const action = await vscode4.window.showErrorMessage(
+          const action = await vscode6.window.showErrorMessage(
             `Tr\u1EA1ng th\xE1i: M\u1EA4T K\u1EBET N\u1ED0I (Disconnected) | ${health.error}`,
             "C\u1EA5u H\xECnh L\u1EA1i"
           );
           if (action === "C\u1EA5u H\xECnh L\u1EA1i") {
-            vscode4.commands.executeCommand("nescode.configureConnection");
+            vscode6.commands.executeCommand("nescode.configureConnection");
           }
         }
       }
@@ -937,16 +1099,16 @@ function registerCheckConnectionCommand(client) {
 }
 
 // src/extension/src/commands/openChat.ts
-var vscode5 = __toESM(require("vscode"));
+var vscode7 = __toESM(require("vscode"));
 function registerOpenChatCommand() {
-  return vscode5.commands.registerCommand("nescode.openChat", async () => {
-    await vscode5.commands.executeCommand("nescode.chatView.focus");
+  return vscode7.commands.registerCommand("nescode.openChat", async () => {
+    await vscode7.commands.executeCommand("nescode.chatView.focus");
   });
 }
 
 // src/extension/src/extension.ts
 async function activate(context) {
-  const outputChannel = vscode6.window.createOutputChannel("NesCode AI");
+  const outputChannel = vscode8.window.createOutputChannel("NesCode AI");
   context.subscriptions.push(outputChannel);
   const secretManager = new SecretManager(context.secrets);
   const client = new WorkerClient(secretManager);
@@ -954,7 +1116,7 @@ async function activate(context) {
   const sessionManager = new SessionManager(context.workspaceState);
   const chatProvider = new ChatViewProvider(context.extensionUri, client, sessionManager);
   context.subscriptions.push(
-    vscode6.window.registerWebviewViewProvider("nescode.chatView", chatProvider)
+    vscode8.window.registerWebviewViewProvider("nescode.chatView", chatProvider)
   );
   context.subscriptions.push(
     await registerConfigureConnectionCommand(secretManager, client)
@@ -968,12 +1130,12 @@ async function activate(context) {
   outputChannel.appendLine("[NesCode] Ti\u1EC7n \xEDch NesCode for Antigravity \u0111\xE3 k\xEDch ho\u1EA1t th\xE0nh c\xF4ng.");
   const conn = await client.getConfig();
   if (!conn) {
-    vscode6.window.showInformationMessage(
+    vscode8.window.showInformationMessage(
       "Ch\xE0o m\u1EEBng \u0111\u1EBFn v\u1EDBi NesCode for Antigravity! Vui l\xF2ng c\u1EA5u h\xECnh Cloudflare Worker URL v\xE0 API Key \u0111\u1EC3 b\u1EAFt \u0111\u1EA7u.",
       "C\u1EA5u H\xECnh Ngay"
     ).then((action) => {
       if (action === "C\u1EA5u H\xECnh Ngay") {
-        vscode6.commands.executeCommand("nescode.configureConnection");
+        vscode8.commands.executeCommand("nescode.configureConnection");
       }
     });
   } else {

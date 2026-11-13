@@ -2,6 +2,8 @@ import * as vscode from 'vscode';
 import { ChatMode, ChatRequest, RequestContext } from '../../../shared/src/index.js';
 import { WorkerClient } from '../api/workerClient.js';
 import { SessionManager, ChatSession, WebviewChatMessage } from '../history/localConversationStore.js';
+import { getWorkspaceSummary } from '../context/workspaceContext.js';
+import { applyFileChange, executeTerminalCommand } from '../agent/patchManager.js';
 
 export class ChatViewProvider implements vscode.WebviewViewProvider {
   private view?: vscode.WebviewView;
@@ -93,6 +95,31 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           }
           break;
 
+        case 'APPLY_FILE_ACTION':
+          if (typeof message.path === 'string' && typeof message.content === 'string') {
+            const result = await applyFileChange(message.path, message.content);
+            if (result.ok) {
+              vscode.window.showInformationMessage(`[NesCode] ${result.message}`);
+              this.view?.webview.postMessage({
+                type: 'ACTION_APPLIED',
+                actionId: message.actionId,
+                success: true
+              });
+            } else {
+              vscode.window.showErrorMessage(`[NesCode] ${result.message}`);
+            }
+          }
+          break;
+
+        case 'EXECUTE_TERMINAL_COMMAND':
+          if (typeof message.command === 'string') {
+            const ok = await executeTerminalCommand(message.command);
+            if (ok) {
+              vscode.window.showInformationMessage(`[NesCode] Đã gửi lệnh tới Terminal: ${message.command}`);
+            }
+          }
+          break;
+
         case 'REQUEST_EDITOR_CONTEXT':
           this.sendEditorContext();
           break;
@@ -175,6 +202,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     // 1. Thu thập context an toàn nếu người dùng bật đính kèm
     let contextData: RequestContext | undefined;
     if (attachContext) {
+      contextData = {};
+
+      // 1A. Thu thập cấu trúc thư mục workspace và manifest
+      const wsSummary = await getWorkspaceSummary();
+      if (wsSummary) {
+        contextData.workspaceTree = `Dự án: ${wsSummary.rootName} (${wsSummary.fileCount} files)\n${wsSummary.manifestInfo ? wsSummary.manifestInfo + '\n' : ''}\n${wsSummary.fileTree}`;
+      }
+
+      // 1B. Thu thập file đang mở hoặc đoạn chọn
       const editor = vscode.window.activeTextEditor;
       if (editor) {
         const doc = editor.document;
@@ -182,24 +218,20 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         const selectionText = doc.getText(editor.selection);
 
         if (!editor.selection.isEmpty && selectionText.trim()) {
-          contextData = {
-            selection: {
-              path: relativePath,
-              language: doc.languageId,
-              content: selectionText
-            }
+          contextData.selection = {
+            path: relativePath,
+            language: doc.languageId,
+            content: selectionText.slice(0, 10000)
           };
         } else {
-          // Nếu không bôi đen, đính kèm active file
-          contextData = {
-            files: [
-              {
-                path: relativePath,
-                language: doc.languageId,
-                content: doc.getText()
-              }
-            ]
-          };
+          // Nếu không bôi đen, đính kèm active file (tối đa 15000 ký tự)
+          contextData.files = [
+            {
+              path: relativePath,
+              language: doc.languageId,
+              content: doc.getText().slice(0, 15000)
+            }
+          ];
         }
       }
     }
@@ -400,7 +432,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   <footer>
     <div class="context-bar" id="contextBar">
       <span id="contextInfo">📎 Không có file đang mở</span>
-      <label><input type="checkbox" id="chkAttachContext" checked> Đính kèm Context</label>
+      <label><input type="checkbox" id="chkAttachContext" checked> Đính kèm Context Dự Án</label>
     </div>
     <div class="composer">
       <textarea id="promptInput" placeholder="Nhập câu hỏi lập trình... (Enter để gửi, Shift+Enter xuống dòng)"></textarea>
