@@ -345,6 +345,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             }
           },
           onDone: async () => {
+            if (!assistantMsg.content || !assistantMsg.content.trim()) {
+              assistantMsg.content = 'Xin lỗi, phản hồi từ máy chủ AI bị gián đoạn hoặc chưa kịp tạo dữ liệu. Bạn hãy bấm gửi lại nhé.';
+              this.view?.webview.postMessage({
+                type: 'STREAM_CHUNK',
+                messageId: assistantMsgId,
+                delta: assistantMsg.content,
+                fullContent: assistantMsg.content
+              });
+            }
+
             this.view?.webview.postMessage({
               type: 'STREAM_COMPLETED',
               messageId: assistantMsgId,

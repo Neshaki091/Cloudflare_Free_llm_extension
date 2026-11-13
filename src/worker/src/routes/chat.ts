@@ -38,7 +38,7 @@ export async function handleChat(
     validatedData.context
   );
 
-  const maxTokens = validatedData.options?.maxOutputTokens || 1500;
+  const maxTokens = validatedData.options?.maxOutputTokens || parseInt(env.MAX_OUTPUT_TOKENS || '', 10) || DEFAULT_MAX_OUTPUT_TOKENS;
   const temperature = validatedData.options?.temperature ?? 0.2;
   const shouldStream = validatedData.options?.stream !== false && env.ENABLE_STREAMING !== 'false';
 

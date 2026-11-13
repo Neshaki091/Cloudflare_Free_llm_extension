@@ -580,7 +580,7 @@ async function searchUpwardsForRoot(startUri) {
   }
   return null;
 }
-async function getWorkspaceSummary(maxFiles = 70, maxDepth = 4) {
+async function getWorkspaceSummary(maxFiles = 45, maxDepth = 3) {
   const rootInfo = await findProjectRootUri();
   if (!rootInfo) {
     return null;
@@ -628,9 +628,8 @@ async function getWorkspaceSummary(maxFiles = 70, maxDepth = 4) {
     const bytes = await vscode2.workspace.fs.readFile(pkgUri);
     const text = new TextDecoder("utf-8").decode(bytes);
     const pkg = JSON.parse(text);
-    manifestInfo = `T\xEAn g\xF3i: ${pkg.name || "N/A"}, Phi\xEAn b\u1EA3n: ${pkg.version || "N/A"}
-Dependencies: ${Object.keys(pkg.dependencies || {}).join(", ") || "kh\xF4ng c\xF3"}
-DevDependencies: ${Object.keys(pkg.devDependencies || {}).join(", ") || "kh\xF4ng c\xF3"}`;
+    manifestInfo = `D\u1EF1 \xE1n: ${pkg.name || "N/A"} (v${pkg.version || "0.1.0"})
+Dependencies ch\xEDnh: ${Object.keys(pkg.dependencies || {}).slice(0, 8).join(", ") || "kh\xF4ng c\xF3"}`;
   } catch {
   }
   return {
@@ -644,7 +643,7 @@ DevDependencies: ${Object.keys(pkg.devDependencies || {}).join(", ") || "kh\xF4n
 async function collectProjectContextFiles(rootUri, promptText, activeDoc) {
   const result = [];
   const readPaths = /* @__PURE__ */ new Set();
-  async function tryReadFile(relativeFilePath, maxChars = 7e3) {
+  async function tryReadFile(relativeFilePath, maxChars = 2500) {
     const normalized = relativeFilePath.replace(/\\/g, "/").replace(/^\/+/, "");
     if (readPaths.has(normalized)) return false;
     const baseName = normalized.split("/").pop() || "";
@@ -653,7 +652,7 @@ async function collectProjectContextFiles(rootUri, promptText, activeDoc) {
       const fileUri = vscode2.Uri.joinPath(rootUri, normalized);
       const stat = await vscode2.workspace.fs.stat(fileUri);
       if (stat.type !== vscode2.FileType.File) return false;
-      if (stat.size > 300 * 1024) return false;
+      if (stat.size > 200 * 1024) return false;
       const bytes = await vscode2.workspace.fs.readFile(fileUri);
       const content = new TextDecoder("utf-8").decode(bytes);
       if (!content.trim()) return false;
@@ -669,46 +668,37 @@ async function collectProjectContextFiles(rootUri, promptText, activeDoc) {
       return false;
     }
   }
-  const keyDocPaths = [
-    "README.md",
+  const taskPaths = [
     "journal/tasks/TASK_BOARD.md",
     "TASK_BOARD.md",
-    "journal/requirements/SRS.md",
-    "SRS.md",
-    "journal/planning/ROADMAP.md",
-    "ROADMAP.md",
-    "AGENTS.md"
+    "TODO.md"
   ];
-  for (const docPath of keyDocPaths) {
-    if (result.length >= 3) break;
-    await tryReadFile(docPath, 5e3);
+  for (const tPath of taskPaths) {
+    if (await tryReadFile(tPath, 2500)) break;
   }
-  const configPaths = [
-    "package.json",
-    "src/worker/wrangler.jsonc",
-    "wrangler.jsonc",
-    "wrangler.toml",
-    "tsconfig.json"
+  const docPaths = [
+    "README.md",
+    "journal/requirements/SRS.md"
   ];
-  for (const cfgPath of configPaths) {
-    if (result.length >= 5) break;
-    await tryReadFile(cfgPath, 4e3);
+  for (const dPath of docPaths) {
+    if (await tryReadFile(dPath, 2500)) break;
   }
+  await tryReadFile("package.json", 1500);
   const fileMentionRegex = /(?:[\w.-]+[\\/])*[\w.-]+\.(?:ts|js|tsx|jsx|json|md|html|css|py|rs|go|ps1|yml|yaml)/gi;
   const matches = promptText.match(fileMentionRegex);
   if (matches) {
     for (const match of matches) {
-      if (result.length >= 7) break;
+      if (result.length >= 5) break;
       const cleanMatch = match.replace(/^[./\\]+/, "").trim();
-      const ok = await tryReadFile(cleanMatch, 8e3);
+      const ok = await tryReadFile(cleanMatch, 4e3);
       if (!ok) {
         try {
           const fileNameOnly = cleanMatch.split(/[\\/]/).pop();
           if (fileNameOnly) {
-            const foundUris = await vscode2.workspace.findFiles(`**/${fileNameOnly}`, "**/node_modules/**", 2);
+            const foundUris = await vscode2.workspace.findFiles(`**/${fileNameOnly}`, "**/node_modules/**", 1);
             for (const fUri of foundUris) {
               const rel = getRelativePath(rootUri, fUri);
-              await tryReadFile(rel, 8e3);
+              await tryReadFile(rel, 4e3);
               break;
             }
           }
@@ -726,7 +716,7 @@ async function collectProjectContextFiles(rootUri, promptText, activeDoc) {
         result.push({
           path: activeRelPath,
           language: activeDoc.languageId,
-          content: content.slice(0, 8e3)
+          content: content.slice(0, 3e3)
         });
       }
     }
@@ -1101,6 +1091,15 @@ ${wsSummary.fileTree}`;
             }
           },
           onDone: async () => {
+            if (!assistantMsg.content || !assistantMsg.content.trim()) {
+              assistantMsg.content = "Xin l\u1ED7i, ph\u1EA3n h\u1ED3i t\u1EEB m\xE1y ch\u1EE7 AI b\u1ECB gi\xE1n \u0111o\u1EA1n ho\u1EB7c ch\u01B0a k\u1ECBp t\u1EA1o d\u1EEF li\u1EC7u. B\u1EA1n h\xE3y b\u1EA5m g\u1EEDi l\u1EA1i nh\xE9.";
+              this.view?.webview.postMessage({
+                type: "STREAM_CHUNK",
+                messageId: assistantMsgId,
+                delta: assistantMsg.content,
+                fullContent: assistantMsg.content
+              });
+            }
             this.view?.webview.postMessage({
               type: "STREAM_COMPLETED",
               messageId: assistantMsgId,

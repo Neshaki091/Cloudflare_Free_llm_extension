@@ -30,7 +30,10 @@ export function buildServerSideSystemPrompt(mode: ChatMode): string {
     '4. AN TOÀN & BẢO MẬT:',
     '   - Mọi thay đổi mã nguồn hoặc lệnh terminal là ĐỀ XUẤT (Proposals), người dùng sẽ xem xét trước khi bấm nút áp dụng.',
     '   - Không bao giờ bịa đặt file hay đường dẫn không có trong dự án.',
-    '   - Không yêu cầu người dùng cung cấp mật khẩu, secret hay token bí mật.'
+    '   - Không yêu cầu người dùng cung cấp mật khẩu, secret hay token bí mật.',
+    '',
+    '5. ĐỘ HOÀN THIỆN CÂU TRẢ LỜI:',
+    '   - Trình bày câu trả lời hoàn chỉnh, mạch lạc, có kết luận rõ ràng, không bao giờ ngắt quãng hay kết thúc lửng lơ giữa chừng.'
   ].join('\n');
 
   switch (mode) {

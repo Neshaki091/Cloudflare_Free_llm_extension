@@ -146,7 +146,7 @@ async function searchUpwardsForRoot(startUri: vscode.Uri): Promise<{ uri: vscode
 /**
  * Thu thập cấu trúc cây thư mục workspace rút gọn cho Agent.
  */
-export async function getWorkspaceSummary(maxFiles = 70, maxDepth = 4): Promise<WorkspaceSummary | null> {
+export async function getWorkspaceSummary(maxFiles = 45, maxDepth = 3): Promise<WorkspaceSummary | null> {
   const rootInfo = await findProjectRootUri();
   if (!rootInfo) {
     return null;
@@ -163,7 +163,6 @@ export async function getWorkspaceSummary(maxFiles = 70, maxDepth = 4): Promise<
 
     try {
       const entries = await vscode.workspace.fs.readDirectory(dirUri);
-      // Sắp xếp: Thư mục trước, file sau
       entries.sort((a, b) => {
         if (a[1] === vscode.FileType.Directory && b[1] !== vscode.FileType.Directory) return -1;
         if (a[1] !== vscode.FileType.Directory && b[1] === vscode.FileType.Directory) return 1;
@@ -207,7 +206,7 @@ export async function getWorkspaceSummary(maxFiles = 70, maxDepth = 4): Promise<
     const bytes = await vscode.workspace.fs.readFile(pkgUri);
     const text = new TextDecoder('utf-8').decode(bytes);
     const pkg = JSON.parse(text);
-    manifestInfo = `Tên gói: ${pkg.name || 'N/A'}, Phiên bản: ${pkg.version || 'N/A'}\nDependencies: ${Object.keys(pkg.dependencies || {}).join(', ') || 'không có'}\nDevDependencies: ${Object.keys(pkg.devDependencies || {}).join(', ') || 'không có'}`;
+    manifestInfo = `Dự án: ${pkg.name || 'N/A'} (v${pkg.version || '0.1.0'})\nDependencies chính: ${Object.keys(pkg.dependencies || {}).slice(0, 8).join(', ') || 'không có'}`;
   } catch {
     // Không có package.json
   }
@@ -223,6 +222,7 @@ export async function getWorkspaceSummary(maxFiles = 70, maxDepth = 4): Promise<
 
 /**
  * Tự động đọc nội dung các file cốt lõi trong thư mục dự án và file liên quan đến câu hỏi.
+ * Tối ưu hóa kích thước context để Workers AI phản hồi tức thì và không bị nghẽn stream.
  */
 export async function collectProjectContextFiles(
   rootUri: vscode.Uri,
@@ -232,7 +232,7 @@ export async function collectProjectContextFiles(
   const result: ContextFile[] = [];
   const readPaths = new Set<string>();
 
-  async function tryReadFile(relativeFilePath: string, maxChars = 7000): Promise<boolean> {
+  async function tryReadFile(relativeFilePath: string, maxChars = 2500): Promise<boolean> {
     const normalized = relativeFilePath.replace(/\\/g, '/').replace(/^\/+/, '');
     if (readPaths.has(normalized)) return false;
 
@@ -244,8 +244,7 @@ export async function collectProjectContextFiles(
       const stat = await vscode.workspace.fs.stat(fileUri);
       if (stat.type !== vscode.FileType.File) return false;
 
-      // Không đọc các file quá lớn (> 300KB)
-      if (stat.size > 300 * 1024) return false;
+      if (stat.size > 200 * 1024) return false;
 
       const bytes = await vscode.workspace.fs.readFile(fileUri);
       const content = new TextDecoder('utf-8').decode(bytes);
@@ -264,64 +263,55 @@ export async function collectProjectContextFiles(
     }
   }
 
-  // 1. Đọc các file tài liệu & tiến độ dự án cốt lõi (Cực kỳ quan trọng để trả lời "dự án làm đến đâu")
-  const keyDocPaths = [
-    'README.md',
+  // 1. Đọc tệp tiến độ Task Board (chứa thông tin chính xác cột mốc nào đã xong, cột mốc nào đang làm)
+  const taskPaths = [
     'journal/tasks/TASK_BOARD.md',
     'TASK_BOARD.md',
-    'journal/requirements/SRS.md',
-    'SRS.md',
-    'journal/planning/ROADMAP.md',
-    'ROADMAP.md',
-    'AGENTS.md'
+    'TODO.md'
   ];
-
-  for (const docPath of keyDocPaths) {
-    if (result.length >= 3) break;
-    await tryReadFile(docPath, 5000);
+  for (const tPath of taskPaths) {
+    if (await tryReadFile(tPath, 2500)) break;
   }
 
-  // 2. Đọc file cấu hình / manifest dự án
-  const configPaths = [
-    'package.json',
-    'src/worker/wrangler.jsonc',
-    'wrangler.jsonc',
-    'wrangler.toml',
-    'tsconfig.json'
+  // 2. Đọc tệp tổng quan dự án (README.md)
+  const docPaths = [
+    'README.md',
+    'journal/requirements/SRS.md'
   ];
-
-  for (const cfgPath of configPaths) {
-    if (result.length >= 5) break;
-    await tryReadFile(cfgPath, 4000);
+  for (const dPath of docPaths) {
+    if (await tryReadFile(dPath, 2500)) break;
   }
 
-  // 3. Quét tệp được nhắc tên cụ thể trong prompt của người dùng
+  // 3. Đọc manifest dự án (package.json)
+  await tryReadFile('package.json', 1500);
+
+  // 4. Quét tệp được nhắc tên cụ thể trong prompt của người dùng (nếu có)
   const fileMentionRegex = /(?:[\w.-]+[\\/])*[\w.-]+\.(?:ts|js|tsx|jsx|json|md|html|css|py|rs|go|ps1|yml|yaml)/gi;
   const matches = promptText.match(fileMentionRegex);
   if (matches) {
     for (const match of matches) {
-      if (result.length >= 7) break;
+      if (result.length >= 5) break;
       const cleanMatch = match.replace(/^[./\\]+/, '').trim();
-      const ok = await tryReadFile(cleanMatch, 8000);
+      const ok = await tryReadFile(cleanMatch, 4000);
       if (!ok) {
         try {
           const fileNameOnly = cleanMatch.split(/[\\/]/).pop();
           if (fileNameOnly) {
-            const foundUris = await vscode.workspace.findFiles(`**/${fileNameOnly}`, '**/node_modules/**', 2);
+            const foundUris = await vscode.workspace.findFiles(`**/${fileNameOnly}`, '**/node_modules/**', 1);
             for (const fUri of foundUris) {
               const rel = getRelativePath(rootUri, fUri);
-              await tryReadFile(rel, 8000);
+              await tryReadFile(rel, 4000);
               break;
             }
           }
         } catch {
-          // Bỏ qua lỗi tìm kiếm
+          // Bỏ qua lỗi
         }
       }
     }
   }
 
-  // 4. Nếu có active editor và chưa được đọc, thêm vào
+  // 5. Nếu có active editor và chưa được đọc, thêm vào (tối đa 3000 ký tự)
   if (activeDoc && activeDoc.uri.scheme === 'file') {
     const activeRelPath = getRelativePath(rootUri, activeDoc.uri);
     const activeBaseName = activeRelPath.split(/[\\/]/).pop() || '';
@@ -331,7 +321,7 @@ export async function collectProjectContextFiles(
         result.push({
           path: activeRelPath,
           language: activeDoc.languageId,
-          content: content.slice(0, 8000)
+          content: content.slice(0, 3000)
         });
       }
     }

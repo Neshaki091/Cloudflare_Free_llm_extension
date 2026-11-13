@@ -9,7 +9,7 @@
   "vars": {
     "DEFAULT_MODEL": "@cf/zai-org/glm-4.7-flash",
     "MAX_BODY_BYTES": "262144",
-    "MAX_OUTPUT_TOKENS": "1500",
+    "MAX_OUTPUT_TOKENS": "4096",
     "ENABLE_STREAMING": "true"
   }
 }
