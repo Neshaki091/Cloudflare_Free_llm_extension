@@ -516,13 +516,76 @@ function isExcluded(name, relativePath) {
   }
   return false;
 }
-async function getWorkspaceSummary(maxFiles = 60, maxDepth = 3) {
+function getRelativePath(baseUri, targetUri) {
+  const basePath = baseUri.path.replace(/\/+$/, "");
+  const targetPath = targetUri.path;
+  if (targetPath.startsWith(basePath)) {
+    return targetPath.slice(basePath.length).replace(/^\/+/, "");
+  }
+  return vscode2.workspace.asRelativePath(targetUri, false);
+}
+async function findProjectRootUri() {
   const folders = vscode2.workspace.workspaceFolders;
-  if (!folders || folders.length === 0) {
+  if (folders && folders.length > 0) {
+    const primaryFolderUri = folders[0].uri;
+    const detectedParent = await searchUpwardsForRoot(primaryFolderUri);
+    if (detectedParent) {
+      return detectedParent;
+    }
+    return {
+      uri: primaryFolderUri,
+      name: folders[0].name
+    };
+  }
+  const activeDoc = vscode2.window.activeTextEditor?.document;
+  if (activeDoc && activeDoc.uri.scheme === "file") {
+    const detected = await searchUpwardsForRoot(activeDoc.uri);
+    if (detected) {
+      return detected;
+    }
+    const parentDir = vscode2.Uri.joinPath(activeDoc.uri, "..");
+    const folderName = parentDir.path.split("/").filter(Boolean).pop() || "workspace";
+    return {
+      uri: parentDir,
+      name: folderName
+    };
+  }
+  return null;
+}
+async function searchUpwardsForRoot(startUri) {
+  try {
+    let currentDir = startUri;
+    const stat = await vscode2.workspace.fs.stat(startUri);
+    if (stat.type !== vscode2.FileType.Directory) {
+      currentDir = vscode2.Uri.joinPath(startUri, "..");
+    }
+    const markers = [".git", "package.json", "wrangler.jsonc", "wrangler.toml", "Cargo.toml", "pyproject.toml", "go.mod"];
+    for (let depth = 0; depth < 6; depth++) {
+      for (const marker of markers) {
+        try {
+          const markerUri = vscode2.Uri.joinPath(currentDir, marker);
+          await vscode2.workspace.fs.stat(markerUri);
+          const name = currentDir.path.split("/").filter(Boolean).pop() || "project";
+          return { uri: currentDir, name };
+        } catch {
+        }
+      }
+      const parentDir = vscode2.Uri.joinPath(currentDir, "..");
+      if (parentDir.path === currentDir.path) {
+        break;
+      }
+      currentDir = parentDir;
+    }
+  } catch {
+  }
+  return null;
+}
+async function getWorkspaceSummary(maxFiles = 70, maxDepth = 4) {
+  const rootInfo = await findProjectRootUri();
+  if (!rootInfo) {
     return null;
   }
-  const rootUri = folders[0].uri;
-  const rootName = folders[0].name;
+  const { uri: rootUri, name: rootName } = rootInfo;
   let totalFiles = 0;
   const lines = [];
   async function walk(dirUri, depth, prefix) {
@@ -540,8 +603,8 @@ async function getWorkspaceSummary(maxFiles = 60, maxDepth = 3) {
         if (totalFiles >= maxFiles) break;
         const [name, type] = entries[i];
         const itemUri = vscode2.Uri.joinPath(dirUri, name);
-        const relativePath = vscode2.workspace.asRelativePath(itemUri, false);
-        if (isExcluded(name, relativePath)) {
+        const relPath = getRelativePath(rootUri, itemUri);
+        if (isExcluded(name, relPath)) {
           continue;
         }
         const isLast = i === entries.length - 1;
@@ -571,25 +634,150 @@ DevDependencies: ${Object.keys(pkg.devDependencies || {}).join(", ") || "kh\xF4n
   } catch {
   }
   return {
+    rootUri,
     rootName,
     fileTree: lines.join("\n"),
     manifestInfo,
     fileCount: totalFiles
   };
 }
+async function collectProjectContextFiles(rootUri, promptText, activeDoc) {
+  const result = [];
+  const readPaths = /* @__PURE__ */ new Set();
+  async function tryReadFile(relativeFilePath, maxChars = 7e3) {
+    const normalized = relativeFilePath.replace(/\\/g, "/").replace(/^\/+/, "");
+    if (readPaths.has(normalized)) return false;
+    const baseName = normalized.split("/").pop() || "";
+    if (isExcluded(baseName, normalized)) return false;
+    try {
+      const fileUri = vscode2.Uri.joinPath(rootUri, normalized);
+      const stat = await vscode2.workspace.fs.stat(fileUri);
+      if (stat.type !== vscode2.FileType.File) return false;
+      if (stat.size > 300 * 1024) return false;
+      const bytes = await vscode2.workspace.fs.readFile(fileUri);
+      const content = new TextDecoder("utf-8").decode(bytes);
+      if (!content.trim()) return false;
+      const lang = getLanguageFromPath(normalized);
+      result.push({
+        path: normalized,
+        language: lang,
+        content: content.slice(0, maxChars)
+      });
+      readPaths.add(normalized);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  const keyDocPaths = [
+    "README.md",
+    "journal/tasks/TASK_BOARD.md",
+    "TASK_BOARD.md",
+    "journal/requirements/SRS.md",
+    "SRS.md",
+    "journal/planning/ROADMAP.md",
+    "ROADMAP.md",
+    "AGENTS.md"
+  ];
+  for (const docPath of keyDocPaths) {
+    if (result.length >= 3) break;
+    await tryReadFile(docPath, 5e3);
+  }
+  const configPaths = [
+    "package.json",
+    "src/worker/wrangler.jsonc",
+    "wrangler.jsonc",
+    "wrangler.toml",
+    "tsconfig.json"
+  ];
+  for (const cfgPath of configPaths) {
+    if (result.length >= 5) break;
+    await tryReadFile(cfgPath, 4e3);
+  }
+  const fileMentionRegex = /(?:[\w.-]+[\\/])*[\w.-]+\.(?:ts|js|tsx|jsx|json|md|html|css|py|rs|go|ps1|yml|yaml)/gi;
+  const matches = promptText.match(fileMentionRegex);
+  if (matches) {
+    for (const match of matches) {
+      if (result.length >= 7) break;
+      const cleanMatch = match.replace(/^[./\\]+/, "").trim();
+      const ok = await tryReadFile(cleanMatch, 8e3);
+      if (!ok) {
+        try {
+          const fileNameOnly = cleanMatch.split(/[\\/]/).pop();
+          if (fileNameOnly) {
+            const foundUris = await vscode2.workspace.findFiles(`**/${fileNameOnly}`, "**/node_modules/**", 2);
+            for (const fUri of foundUris) {
+              const rel = getRelativePath(rootUri, fUri);
+              await tryReadFile(rel, 8e3);
+              break;
+            }
+          }
+        } catch {
+        }
+      }
+    }
+  }
+  if (activeDoc && activeDoc.uri.scheme === "file") {
+    const activeRelPath = getRelativePath(rootUri, activeDoc.uri);
+    const activeBaseName = activeRelPath.split(/[\\/]/).pop() || "";
+    if (!readPaths.has(activeRelPath) && !isExcluded(activeBaseName, activeRelPath)) {
+      const content = activeDoc.getText();
+      if (content.trim()) {
+        result.push({
+          path: activeRelPath,
+          language: activeDoc.languageId,
+          content: content.slice(0, 8e3)
+        });
+      }
+    }
+  }
+  return result;
+}
+function getLanguageFromPath(pathStr) {
+  const ext = pathStr.split(".").pop()?.toLowerCase();
+  switch (ext) {
+    case "ts":
+      return "typescript";
+    case "tsx":
+      return "typescriptreact";
+    case "js":
+    case "mjs":
+    case "cjs":
+      return "javascript";
+    case "json":
+    case "jsonc":
+      return "json";
+    case "md":
+      return "markdown";
+    case "html":
+      return "html";
+    case "css":
+      return "css";
+    case "ps1":
+      return "powershell";
+    case "py":
+      return "python";
+    case "rs":
+      return "rust";
+    case "go":
+      return "go";
+    default:
+      return "plaintext";
+  }
+}
 
 // src/extension/src/agent/patchManager.ts
 var vscode3 = __toESM(require("vscode"));
 async function applyFileChange(relativePath, newContent) {
-  const folders = vscode3.workspace.workspaceFolders;
-  if (!folders || folders.length === 0) {
-    return { ok: false, message: "Kh\xF4ng t\xECm th\u1EA5y workspace \u0111ang m\u1EDF." };
+  const rootInfo = await findProjectRootUri();
+  if (!rootInfo) {
+    return { ok: false, message: "Kh\xF4ng t\xECm th\u1EA5y th\u01B0 m\u1EE5c d\u1EF1 \xE1n \u0111ang m\u1EDF." };
   }
   const cleanPath = relativePath.trim().replace(/\\/g, "/").replace(/^\/+/, "");
   if (!cleanPath || cleanPath.includes("..")) {
     return { ok: false, message: "\u0110\u01B0\u1EDDng d\u1EABn file kh\xF4ng an to\xE0n ho\u1EB7c ch\u1EE9a path traversal." };
   }
-  const targetUri = vscode3.Uri.joinPath(folders[0].uri, cleanPath);
+  const targetUri = vscode3.Uri.joinPath(rootInfo.uri, cleanPath);
   try {
     const encoder = new TextEncoder();
     const data = encoder.encode(newContent);
@@ -606,6 +794,20 @@ async function applyFileChange(relativePath, newContent) {
       ok: false,
       message: `L\u1ED7i khi ghi file ${cleanPath}: ${err?.message || err}`
     };
+  }
+}
+async function openFileInEditor(relativePath) {
+  const rootInfo = await findProjectRootUri();
+  if (!rootInfo) return false;
+  const cleanPath = relativePath.trim().replace(/\\/g, "/").replace(/^\/+/, "");
+  if (!cleanPath || cleanPath.includes("..")) return false;
+  const targetUri = vscode3.Uri.joinPath(rootInfo.uri, cleanPath);
+  try {
+    const doc = await vscode3.workspace.openTextDocument(targetUri);
+    await vscode3.window.showTextDocument(doc, { preview: false });
+    return true;
+  } catch {
+    return false;
   }
 }
 async function executeTerminalCommand(commandText) {
@@ -715,6 +917,11 @@ var ChatViewProvider = class {
             }
           }
           break;
+        case "OPEN_FILE":
+          if (typeof message.path === "string") {
+            await openFileInEditor(message.path);
+          }
+          break;
         case "REQUEST_EDITOR_CONTEXT":
           this.sendEditorContext();
           break;
@@ -782,6 +989,7 @@ var ChatViewProvider = class {
     let contextData;
     if (attachContext) {
       contextData = {};
+      const rootInfo = await findProjectRootUri();
       const wsSummary = await getWorkspaceSummary();
       if (wsSummary) {
         contextData.workspaceTree = `D\u1EF1 \xE1n: ${wsSummary.rootName} (${wsSummary.fileCount} files)
@@ -789,6 +997,12 @@ ${wsSummary.manifestInfo ? wsSummary.manifestInfo + "\n" : ""}
 ${wsSummary.fileTree}`;
       }
       const editor = vscode4.window.activeTextEditor;
+      if (rootInfo) {
+        const autoFiles = await collectProjectContextFiles(rootInfo.uri, cleanPrompt, editor?.document);
+        if (autoFiles.length > 0) {
+          contextData.files = autoFiles;
+        }
+      }
       if (editor) {
         const doc = editor.document;
         const relativePath = vscode4.workspace.asRelativePath(doc.uri);
@@ -799,14 +1013,6 @@ ${wsSummary.fileTree}`;
             language: doc.languageId,
             content: selectionText.slice(0, 1e4)
           };
-        } else {
-          contextData.files = [
-            {
-              path: relativePath,
-              language: doc.languageId,
-              content: doc.getText().slice(0, 15e3)
-            }
-          ];
         }
       }
     }

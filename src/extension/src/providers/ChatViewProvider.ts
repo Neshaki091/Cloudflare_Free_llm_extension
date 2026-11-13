@@ -2,8 +2,8 @@ import * as vscode from 'vscode';
 import { ChatMode, ChatRequest, RequestContext } from '../../../shared/src/index.js';
 import { WorkerClient } from '../api/workerClient.js';
 import { SessionManager, ChatSession, WebviewChatMessage } from '../history/localConversationStore.js';
-import { getWorkspaceSummary } from '../context/workspaceContext.js';
-import { applyFileChange, executeTerminalCommand } from '../agent/patchManager.js';
+import { findProjectRootUri, getWorkspaceSummary, collectProjectContextFiles } from '../context/workspaceContext.js';
+import { applyFileChange, executeTerminalCommand, openFileInEditor } from '../agent/patchManager.js';
 
 export class ChatViewProvider implements vscode.WebviewViewProvider {
   private view?: vscode.WebviewView;
@@ -120,6 +120,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           }
           break;
 
+        case 'OPEN_FILE':
+          if (typeof message.path === 'string') {
+            await openFileInEditor(message.path);
+          }
+          break;
+
         case 'REQUEST_EDITOR_CONTEXT':
           this.sendEditorContext();
           break;
@@ -204,14 +210,25 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     if (attachContext) {
       contextData = {};
 
-      // 1A. Thu thập cấu trúc thư mục workspace và manifest
+      // 1A. Tự động nhận dạng thư mục cha / thư mục gốc của dự án
+      const rootInfo = await findProjectRootUri();
+
+      // 1B. Thu thập cấu trúc thư mục workspace và manifest
       const wsSummary = await getWorkspaceSummary();
       if (wsSummary) {
         contextData.workspaceTree = `Dự án: ${wsSummary.rootName} (${wsSummary.fileCount} files)\n${wsSummary.manifestInfo ? wsSummary.manifestInfo + '\n' : ''}\n${wsSummary.fileTree}`;
       }
 
-      // 1B. Thu thập file đang mở hoặc đoạn chọn
+      // 1C. Tự động đọc nội dung các file cốt lõi trong dự án
       const editor = vscode.window.activeTextEditor;
+      if (rootInfo) {
+        const autoFiles = await collectProjectContextFiles(rootInfo.uri, cleanPrompt, editor?.document);
+        if (autoFiles.length > 0) {
+          contextData.files = autoFiles;
+        }
+      }
+
+      // 1D. Đoạn mã đang bôi đen (nếu có)
       if (editor) {
         const doc = editor.document;
         const relativePath = vscode.workspace.asRelativePath(doc.uri);
@@ -223,15 +240,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             language: doc.languageId,
             content: selectionText.slice(0, 10000)
           };
-        } else {
-          // Nếu không bôi đen, đính kèm active file (tối đa 15000 ký tự)
-          contextData.files = [
-            {
-              path: relativePath,
-              language: doc.languageId,
-              content: doc.getText().slice(0, 15000)
-            }
-          ];
         }
       }
     }

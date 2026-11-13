@@ -107,6 +107,22 @@ function renderMarkdown(rawText) {
     '</div>';
   });
 
+  // 4B. Parse Agent Action: read_file (Đề xuất xem/đọc file trong dự án)
+  const readFileRegex = new RegExp('&lt;action\\s+type="read_file"\\s+path="([^"]+)"&gt;([\\s\\S]*?)&lt;\\/action&gt;', 'gi');
+  escaped = escaped.replace(readFileRegex, (match, filePath, desc) => {
+    const cleanDesc = desc ? desc.trim() : '';
+    return '<div class="action-card file-action">' +
+      '<div class="action-card-header">' +
+        '<div class="action-card-title">📖 Tệp Dự Án Cần Xem</div>' +
+        '<div class="action-card-path">' + filePath + '</div>' +
+      '</div>' +
+      (cleanDesc ? '<div class="action-card-desc">' + cleanDesc + '</div>' : '') +
+      '<div class="action-card-footer">' +
+        '<button class="action-btn open-btn" onclick="openFileAction(\'' + encodeURIComponent(filePath) + '\')">👁 Mở Tệp Này</button>' +
+      '</div>' +
+    '</div>';
+  });
+
   // 5. Code blocks thông thường
   const codeBlockRegex = new RegExp('```(\\w*)?\\r?\\n([\\s\\S]*?)```', 'g');
   escaped = escaped.replace(codeBlockRegex, (match, lang, code) => {
@@ -164,6 +180,14 @@ window.executeCommandAction = function(encodedCmd) {
   vscode.postMessage({
     type: 'EXECUTE_TERMINAL_COMMAND',
     command: cmd
+  });
+};
+
+window.openFileAction = function(encodedPath) {
+  const filePath = decodeURIComponent(encodedPath);
+  vscode.postMessage({
+    type: 'OPEN_FILE',
+    path: filePath
   });
 };
 

@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { findProjectRootUri } from '../context/workspaceContext.js';
 
 export interface ApplyFileResult {
   ok: boolean;
@@ -14,9 +15,9 @@ export async function applyFileChange(
   relativePath: string,
   newContent: string
 ): Promise<ApplyFileResult> {
-  const folders = vscode.workspace.workspaceFolders;
-  if (!folders || folders.length === 0) {
-    return { ok: false, message: 'Không tìm thấy workspace đang mở.' };
+  const rootInfo = await findProjectRootUri();
+  if (!rootInfo) {
+    return { ok: false, message: 'Không tìm thấy thư mục dự án đang mở.' };
   }
 
   const cleanPath = relativePath.trim().replace(/\\/g, '/').replace(/^\/+/, '');
@@ -24,7 +25,7 @@ export async function applyFileChange(
     return { ok: false, message: 'Đường dẫn file không an toàn hoặc chứa path traversal.' };
   }
 
-  const targetUri = vscode.Uri.joinPath(folders[0]!.uri, cleanPath);
+  const targetUri = vscode.Uri.joinPath(rootInfo.uri, cleanPath);
 
   try {
     const encoder = new TextEncoder();
@@ -49,13 +50,32 @@ export async function applyFileChange(
 }
 
 /**
+ * Mở một file trong trình soạn thảo của Antigravity IDE.
+ */
+export async function openFileInEditor(relativePath: string): Promise<boolean> {
+  const rootInfo = await findProjectRootUri();
+  if (!rootInfo) return false;
+
+  const cleanPath = relativePath.trim().replace(/\\/g, '/').replace(/^\/+/, '');
+  if (!cleanPath || cleanPath.includes('..')) return false;
+
+  const targetUri = vscode.Uri.joinPath(rootInfo.uri, cleanPath);
+  try {
+    const doc = await vscode.workspace.openTextDocument(targetUri);
+    await vscode.window.showTextDocument(doc, { preview: false });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Thực thi câu lệnh Terminal do AI đề xuất sau khi người dùng phê duyệt
  */
 export async function executeTerminalCommand(commandText: string): Promise<boolean> {
   const cleanCmd = commandText.trim();
   if (!cleanCmd) return false;
 
-  // Mở hoặc tạo Terminal của NesCode AI
   let terminal = vscode.window.terminals.find((t) => t.name === 'NesCode Terminal');
   if (!terminal) {
     terminal = vscode.window.createTerminal('NesCode Terminal');

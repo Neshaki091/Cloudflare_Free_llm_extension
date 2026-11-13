@@ -588,6 +588,18 @@ textarea:focus {
   color: #ffffff;
 }
 
+.action-btn.open-btn {
+  background: #007acc;
+  color: #ffffff;
+}
+
+.action-card-desc {
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--fg);
+  opacity: 0.85;
+}
+
 .action-btn.applied {
   background: rgba(255, 255, 255, 0.1);
   color: #81c784;

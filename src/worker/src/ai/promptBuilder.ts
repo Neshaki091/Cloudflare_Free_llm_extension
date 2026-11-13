@@ -2,12 +2,15 @@ import { ChatMessage, ChatMode, RequestContext } from '../../../shared/src/index
 
 export function buildServerSideSystemPrompt(mode: ChatMode): string {
   const agentPhilosophy = [
-    'Bạn là NesCode — Trợ lý lập trình trí tuệ nhân tạo (Autonomous AI Coding Agent) tích hợp trực tiếp trong Antigravity IDE, hoạt động với phong cách chuyên nghiệp tương tự như Cline / Claude Code.',
+    'Bạn là NesCode — Trợ lý lập trình trí tuệ nhân tạo tự động (Autonomous AI Coding Agent) tích hợp trực tiếp trong Antigravity IDE, hoạt động với năng lực toàn diện tương tự như Cline / Claude Code.',
     '',
-    'QUY TẮC VẬN HÀNH CỐT LÕI:',
-    '1. NGÔN NGỮ: Bắt buộc giao tiếp, giải thích kỹ thuật và phản hồi hoàn toàn bằng TIẾNG VIỆT chuẩn mực, mạch lạc, súc tích và chuyên nghiệp.',
-    '2. KHẢO SÁT DỰ ÁN: Khi có phần [CẤU TRÚC THƯ MỤC DỰ ÁN (WORKSPACE TREE)] trong Context, bạn PHẢI dựa vào cây thư mục và các file cấu hình để nắm bắt tiến độ, cấu trúc thư mục, các module hiện có và trả lời chính xác thực tế của dự án người dùng.',
-    '3. ĐỀ XUẤT HÀNH ĐỘNG (AGENT ACTIONS): Khi giải quyết vấn đề, viết code mới hoặc sửa lỗi, bạn hãy chủ động đề xuất hành động cụ thể bằng các khối thẻ hành động đặc biệt sau để giao diện người dùng có thể hiển thị nút [Áp dụng] hoặc [Chạy]:',
+    'QUY TẮC VẬN HÀNH CỐT LÕI DÀNH CHO AGENT:',
+    '1. NGÔN NGỮ BẮT BUỘC: Luôn giao tiếp, giải thích kỹ thuật và phản hồi hoàn toàn bằng TIẾNG VIỆT chuẩn mực, mạch lạc, súc tích và chuyên nghiệp.',
+    '2. TỰ ĐỘNG KHẢO SÁT & ĐỌC DỰ ÁN (WORKSPACE AWARENESS):',
+    '   - Bạn được cung cấp cây thư mục cha đầy đủ của dự án (Workspace Tree) và nội dung các file cốt lõi (README.md, TASK_BOARD.md, package.json, mã nguồn, cấu hình, v.v.) trong khối [CONTEXT].',
+    '   - Khi người dùng hỏi về tiến độ dự án, cấu trúc hay mã nguồn (ví dụ: "dự án này tôi đã làm đến đâu rồi"), bạn PHẢI tự động đọc và phân tích kỹ lưỡng các file trong [CONTEXT] để báo cáo chính xác tình trạng thực tế của dự án (các cột mốc đã xong, task đang làm, kiến trúc hiện có).',
+    '   - TUYỆT ĐỐI KHÔNG ĐƯỢC từ chối hay yêu cầu người dùng phải tự sao chép hay cung cấp thêm mã nguồn hoặc cấu trúc file, vì bạn đã có sẵn dữ liệu đó trong [CONTEXT].',
+    '3. ĐỀ XUẤT HÀNH ĐỘNG AGENT (INTERACTIVE ACTION CARDS): Khi giải quyết vấn đề, viết code mới hoặc sửa lỗi, bạn hãy chủ động đề xuất hành động cụ thể bằng các khối thẻ đặc biệt để giao diện người dùng hiển thị nút bấm tương tác:',
     '',
     '   - Khi tạo mới hoặc cập nhật một file mã nguồn:',
     '   <action type="write_file" path="đường/dẫn/file.ts">',
@@ -17,6 +20,11 @@ export function buildServerSideSystemPrompt(mode: ChatMode): string {
     '   - Khi đề xuất câu lệnh Terminal (build, test, install, run):',
     '   <action type="run_command">',
     '   npm run build',
+    '   </action>',
+    '',
+    '   - Khi đề xuất mở hoặc xem một file trong dự án:',
+    '   <action type="read_file" path="đường/dẫn/file.ts">',
+    '   Lý do cần xem file này',
     '   </action>',
     '',
     '4. AN TOÀN & BẢO MẬT:',
@@ -74,7 +82,7 @@ export function buildModelMessages(
     content: buildServerSideSystemPrompt(mode)
   });
 
-  // 2. Chèn Context vào tin nhắn người dùng đầu tiên hoặc dưới dạng message hỗ trợ
+  // 2. Chèn Context vào tin nhắn
   let contextBlock = '';
   if (context) {
     const parts: string[] = [];
@@ -93,12 +101,12 @@ export function buildModelMessages(
       );
     }
 
-    // File đang mở
+    // Các files mã nguồn & tài liệu cốt lõi đã tự động đọc từ dự án
     if (context.files && context.files.length > 0) {
       for (const f of context.files) {
         if (f.content.trim()) {
           parts.push(
-            `--- FILE ĐANG MỞ (${f.path}, ngôn ngữ: ${f.language}) ---\n${f.content}\n--- HẾT FILE ---`
+            `--- FILE: ${f.path} (ngôn ngữ: ${f.language}) ---\n${f.content}\n--- HẾT FILE: ${f.path} ---`
           );
         }
       }
@@ -109,15 +117,19 @@ export function buildModelMessages(
     }
   }
 
-  // 3. Đưa các messages hội thoại vào, ghép context vào user message đầu tiên nếu có
-  let contextInjected = false;
-  for (const m of messages) {
-    if (m.role === 'user' && !contextInjected && contextBlock) {
+  // 3. Đưa các messages hội thoại vào, ghép context mới nhất vào user message CUỐI CÙNG (lượt hỏi hiện tại)
+  const lastUserIndex = messages
+    .map((m, idx) => (m.role === 'user' ? idx : -1))
+    .filter((idx) => idx !== -1)
+    .pop();
+
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i]!;
+    if (i === lastUserIndex && contextBlock) {
       result.push({
         role: 'user',
-        content: `${contextBlock}YÊU CẦU CỦA NGƯỜI DÙNG:\n${m.content}`
+        content: `${contextBlock}YÊU CẦU HIỆN TẠI CỦA NGƯỜI DÙNG:\n${m.content}`
       });
-      contextInjected = true;
     } else {
       result.push({
         role: m.role,

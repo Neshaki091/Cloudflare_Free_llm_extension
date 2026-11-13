@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
-import { DEFAULT_EXCLUDE_PATTERNS } from '../../../shared/src/index.js';
+import { ContextFile } from '../../../shared/src/index.js';
 
 export interface WorkspaceSummary {
+  rootUri: vscode.Uri;
   rootName: string;
   fileTree: string;
   manifestInfo?: string;
@@ -11,7 +12,7 @@ export interface WorkspaceSummary {
 /**
  * Kiểm tra xem một file/thư mục có thuộc danh sách loại trừ bảo mật không.
  */
-function isExcluded(name: string, relativePath: string): boolean {
+export function isExcluded(name: string, relativePath: string): boolean {
   const lowerName = name.toLowerCase();
   const lowerPath = relativePath.toLowerCase().replace(/\\/g, '/');
 
@@ -54,17 +55,104 @@ function isExcluded(name: string, relativePath: string): boolean {
 }
 
 /**
+ * Tính toán đường dẫn tương đối an toàn giữa baseUri và targetUri.
+ */
+function getRelativePath(baseUri: vscode.Uri, targetUri: vscode.Uri): string {
+  const basePath = baseUri.path.replace(/\/+$/, '');
+  const targetPath = targetUri.path;
+  if (targetPath.startsWith(basePath)) {
+    return targetPath.slice(basePath.length).replace(/^\/+/, '');
+  }
+  return vscode.workspace.asRelativePath(targetUri, false);
+}
+
+/**
+ * Tự động tìm thư mục cha / thư mục gốc của dự án (Project Root).
+ * Dò tìm từ workspaceFolders hoặc duyệt ngược từ active file lên trên để tìm .git, package.json, wrangler.jsonc.
+ */
+export async function findProjectRootUri(): Promise<{ uri: vscode.Uri; name: string } | null> {
+  // 1. Kiểm tra workspaceFolders mở trong IDE
+  const folders = vscode.workspace.workspaceFolders;
+  if (folders && folders.length > 0) {
+    const primaryFolderUri = folders[0]!.uri;
+    // Kiểm tra xem primaryFolderUri có thư mục cha chứa .git hay package.json không (trường hợp mở thư mục con)
+    const detectedParent = await searchUpwardsForRoot(primaryFolderUri);
+    if (detectedParent) {
+      return detectedParent;
+    }
+    return {
+      uri: primaryFolderUri,
+      name: folders[0]!.name
+    };
+  }
+
+  // 2. Nếu không có workspaceFolder (chỉ mở file đơn lẻ), dò từ activeTextEditor
+  const activeDoc = vscode.window.activeTextEditor?.document;
+  if (activeDoc && activeDoc.uri.scheme === 'file') {
+    const detected = await searchUpwardsForRoot(activeDoc.uri);
+    if (detected) {
+      return detected;
+    }
+    const parentDir = vscode.Uri.joinPath(activeDoc.uri, '..');
+    const folderName = parentDir.path.split('/').filter(Boolean).pop() || 'workspace';
+    return {
+      uri: parentDir,
+      name: folderName
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Duyệt ngược lên các thư mục cha để tìm thư mục gốc chứa .git, package.json hoặc các file định danh dự án.
+ */
+async function searchUpwardsForRoot(startUri: vscode.Uri): Promise<{ uri: vscode.Uri; name: string } | null> {
+  try {
+    let currentDir = startUri;
+    const stat = await vscode.workspace.fs.stat(startUri);
+    if (stat.type !== vscode.FileType.Directory) {
+      currentDir = vscode.Uri.joinPath(startUri, '..');
+    }
+
+    const markers = ['.git', 'package.json', 'wrangler.jsonc', 'wrangler.toml', 'Cargo.toml', 'pyproject.toml', 'go.mod'];
+
+    // Lặp ngược lên tối đa 6 cấp thư mục cha
+    for (let depth = 0; depth < 6; depth++) {
+      for (const marker of markers) {
+        try {
+          const markerUri = vscode.Uri.joinPath(currentDir, marker);
+          await vscode.workspace.fs.stat(markerUri);
+          const name = currentDir.path.split('/').filter(Boolean).pop() || 'project';
+          return { uri: currentDir, name };
+        } catch {
+          // Marker không tồn tại ở cấp này
+        }
+      }
+
+      const parentDir = vscode.Uri.joinPath(currentDir, '..');
+      if (parentDir.path === currentDir.path) {
+        break; // Đã tới thư mục gốc của ổ đĩa
+      }
+      currentDir = parentDir;
+    }
+  } catch {
+    // Bỏ qua lỗi truy cập
+  }
+
+  return null;
+}
+
+/**
  * Thu thập cấu trúc cây thư mục workspace rút gọn cho Agent.
  */
-export async function getWorkspaceSummary(maxFiles = 60, maxDepth = 3): Promise<WorkspaceSummary | null> {
-  const folders = vscode.workspace.workspaceFolders;
-  if (!folders || folders.length === 0) {
+export async function getWorkspaceSummary(maxFiles = 70, maxDepth = 4): Promise<WorkspaceSummary | null> {
+  const rootInfo = await findProjectRootUri();
+  if (!rootInfo) {
     return null;
   }
 
-  const rootUri = folders[0]!.uri;
-  const rootName = folders[0]!.name;
-
+  const { uri: rootUri, name: rootName } = rootInfo;
   let totalFiles = 0;
   const lines: string[] = [];
 
@@ -87,9 +175,9 @@ export async function getWorkspaceSummary(maxFiles = 60, maxDepth = 3): Promise<
 
         const [name, type] = entries[i]!;
         const itemUri = vscode.Uri.joinPath(dirUri, name);
-        const relativePath = vscode.workspace.asRelativePath(itemUri, false);
+        const relPath = getRelativePath(rootUri, itemUri);
 
-        if (isExcluded(name, relativePath)) {
+        if (isExcluded(name, relPath)) {
           continue;
         }
 
@@ -125,9 +213,150 @@ export async function getWorkspaceSummary(maxFiles = 60, maxDepth = 3): Promise<
   }
 
   return {
+    rootUri,
     rootName,
     fileTree: lines.join('\n'),
     manifestInfo,
     fileCount: totalFiles
   };
+}
+
+/**
+ * Tự động đọc nội dung các file cốt lõi trong thư mục dự án và file liên quan đến câu hỏi.
+ */
+export async function collectProjectContextFiles(
+  rootUri: vscode.Uri,
+  promptText: string,
+  activeDoc?: vscode.TextDocument
+): Promise<ContextFile[]> {
+  const result: ContextFile[] = [];
+  const readPaths = new Set<string>();
+
+  async function tryReadFile(relativeFilePath: string, maxChars = 7000): Promise<boolean> {
+    const normalized = relativeFilePath.replace(/\\/g, '/').replace(/^\/+/, '');
+    if (readPaths.has(normalized)) return false;
+
+    const baseName = normalized.split('/').pop() || '';
+    if (isExcluded(baseName, normalized)) return false;
+
+    try {
+      const fileUri = vscode.Uri.joinPath(rootUri, normalized);
+      const stat = await vscode.workspace.fs.stat(fileUri);
+      if (stat.type !== vscode.FileType.File) return false;
+
+      // Không đọc các file quá lớn (> 300KB)
+      if (stat.size > 300 * 1024) return false;
+
+      const bytes = await vscode.workspace.fs.readFile(fileUri);
+      const content = new TextDecoder('utf-8').decode(bytes);
+      if (!content.trim()) return false;
+
+      const lang = getLanguageFromPath(normalized);
+      result.push({
+        path: normalized,
+        language: lang,
+        content: content.slice(0, maxChars)
+      });
+      readPaths.add(normalized);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // 1. Đọc các file tài liệu & tiến độ dự án cốt lõi (Cực kỳ quan trọng để trả lời "dự án làm đến đâu")
+  const keyDocPaths = [
+    'README.md',
+    'journal/tasks/TASK_BOARD.md',
+    'TASK_BOARD.md',
+    'journal/requirements/SRS.md',
+    'SRS.md',
+    'journal/planning/ROADMAP.md',
+    'ROADMAP.md',
+    'AGENTS.md'
+  ];
+
+  for (const docPath of keyDocPaths) {
+    if (result.length >= 3) break;
+    await tryReadFile(docPath, 5000);
+  }
+
+  // 2. Đọc file cấu hình / manifest dự án
+  const configPaths = [
+    'package.json',
+    'src/worker/wrangler.jsonc',
+    'wrangler.jsonc',
+    'wrangler.toml',
+    'tsconfig.json'
+  ];
+
+  for (const cfgPath of configPaths) {
+    if (result.length >= 5) break;
+    await tryReadFile(cfgPath, 4000);
+  }
+
+  // 3. Quét tệp được nhắc tên cụ thể trong prompt của người dùng
+  const fileMentionRegex = /(?:[\w.-]+[\\/])*[\w.-]+\.(?:ts|js|tsx|jsx|json|md|html|css|py|rs|go|ps1|yml|yaml)/gi;
+  const matches = promptText.match(fileMentionRegex);
+  if (matches) {
+    for (const match of matches) {
+      if (result.length >= 7) break;
+      const cleanMatch = match.replace(/^[./\\]+/, '').trim();
+      const ok = await tryReadFile(cleanMatch, 8000);
+      if (!ok) {
+        try {
+          const fileNameOnly = cleanMatch.split(/[\\/]/).pop();
+          if (fileNameOnly) {
+            const foundUris = await vscode.workspace.findFiles(`**/${fileNameOnly}`, '**/node_modules/**', 2);
+            for (const fUri of foundUris) {
+              const rel = getRelativePath(rootUri, fUri);
+              await tryReadFile(rel, 8000);
+              break;
+            }
+          }
+        } catch {
+          // Bỏ qua lỗi tìm kiếm
+        }
+      }
+    }
+  }
+
+  // 4. Nếu có active editor và chưa được đọc, thêm vào
+  if (activeDoc && activeDoc.uri.scheme === 'file') {
+    const activeRelPath = getRelativePath(rootUri, activeDoc.uri);
+    const activeBaseName = activeRelPath.split(/[\\/]/).pop() || '';
+    if (!readPaths.has(activeRelPath) && !isExcluded(activeBaseName, activeRelPath)) {
+      const content = activeDoc.getText();
+      if (content.trim()) {
+        result.push({
+          path: activeRelPath,
+          language: activeDoc.languageId,
+          content: content.slice(0, 8000)
+        });
+      }
+    }
+  }
+
+  return result;
+}
+
+function getLanguageFromPath(pathStr: string): string {
+  const ext = pathStr.split('.').pop()?.toLowerCase();
+  switch (ext) {
+    case 'ts': return 'typescript';
+    case 'tsx': return 'typescriptreact';
+    case 'js':
+    case 'mjs':
+    case 'cjs': return 'javascript';
+    case 'json':
+    case 'jsonc': return 'json';
+    case 'md': return 'markdown';
+    case 'html': return 'html';
+    case 'css': return 'css';
+    case 'ps1': return 'powershell';
+    case 'py': return 'python';
+    case 'rs': return 'rust';
+    case 'go': return 'go';
+    default: return 'plaintext';
+  }
 }
