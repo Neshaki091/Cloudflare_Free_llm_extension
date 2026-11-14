@@ -1,40 +1,36 @@
 # Bảng Công Việc Hiện Tại (Task Board)
 
 - **Ngày cập nhật:** 2026-11-14
-- **Cột mốc:** Đã hoàn thành `M0`, `M1`, `M2`, `M3`, `M4 (Context Engineering)` và `M5 (Safe Code Assistance)`
-
-Bảng công việc tập trung vào các nhiệm vụ đang kích hoạt (`IN_PROGRESS`) và các nhiệm vụ sẵn sàng thực hiện kế tiếp (`TODO`).
+- **Cột mốc:** Đã hoàn thành toàn diện toàn bộ các Milestone từ `M0` đến `M6` (Official Release v0.1.0).
 
 ---
 
-## 1. Nhiệm Vụ Kế Tiếp (Milestone M6 — Quality & Official Release)
+## 1. Trạng Thái Tổng Thể Dự Án (All Milestones Completed)
+
+| Milestone | Tên Cột Mốc | Trạng Thái | Ghi Chú Nghiệm Thu |
+| :--- | :--- | :---: | :--- |
+| **M0** | Compatibility Spike | **DONE** | Antigravity IDE hoàn toàn tương thích với VS Code Extension API. |
+| **M1** | Project Foundation | **DONE** | Cấu trúc Monorepo, Shared contracts, Build pipeline hoàn chỉnh. |
+| **M2** | Cloudflare Backend | **DONE** | Worker Gateway trực tuyến (`@cf/zai-org/glm-4.7-flash`), SSE streaming, 4096 tokens limit. |
+| **M3** | Extension MVP | **DONE** | Chat Webview Panel, Multi-session, SecretStorage, Output Channel. |
+| **M4** | Context Engineering | **DONE** | Tự nhận diện thư mục cha, nạp tài liệu tự động, bảo mật file, nút đóng [✕]. |
+| **M5** | Safe Code Assistance | **DONE** | Menu chuột phải (Explain/Fix/Tests), Diff Preview, Stale Document Protection, Unescape HTML. |
+| **M6** | Quality & Official Release | **DONE** | 13/13 tests tự động PASS (100%), hoàn thiện README.md, VSIX v0.1.0 xuất bản. |
+
+---
+
+## 2. Nhiệm Vụ Milestone M6 (Đã Hoàn Thành)
 
 ### TASK-601 — Bộ Kiểm Thử Tự Động Toàn Diện (Unit & Integration Tests)
-- **Status:** TODO (Sẵn sàng triển khai)
+- **Status:** DONE
 - **Priority:** P0 (Chất lượng phần mềm)
 - **Milestone:** M6 — Quality & Release
 - **Related SRS:** FR-007, SRS mục 13.4
-- **Dependencies:** Hoàn thành M5
-- **Owner:** AI Lead Architect
-- **Created:** 2026-11-14
-- **Objective:** Viết bài kiểm thử tự động cho Shared types, SSE Parser, Patch Manager, Unescape HTML và Worker Middleware.
+- **Verification Evidence:** Chạy `npm test` với Node.js Native Runner: 13/13 tests vượt qua thành công 100%.
 
 ### TASK-602 — Hoàn Thiện Tài Liệu Phát Hành & Hướng Dẫn BYO Worker (README.md)
-- **Status:** TODO
+- **Status:** DONE
 - **Priority:** P0
 - **Milestone:** M6 — Quality & Release
 - **Related SRS:** SRS mục 9, 12, 19
-- **Dependencies:** TASK-601
-- **Owner:** AI Lead Architect
-- **Created:** 2026-11-14
-- **Objective:** Cập nhật tài liệu hướng dẫn triển khai Worker miễn phí, hình ảnh giao diện thực tế và quy trình cài đặt v0.1.0.
-
----
-
-## 2. Các Cột Mốc Đã Nghiệm Thu Hoàn Thành
-- **M0 — Compatibility Spike:** Xác nhận 100% tính tương thích của Antigravity Extension Host.
-- **M1 — Project Foundation:** Khung Monorepo, Shared Contracts, Build scripts.
-- **M2 — Cloudflare Backend:** Worker live gateway (`@cf/zai-org/glm-4.7-flash`), SSE streaming, 4096 tokens limit.
-- **M3 — Extension MVP:** Webview chat panel, multi-session, local storage, output channel.
-- **M4 — Context Engineering:** Nhận diện thư mục cha, đọc tự động file dự án, bộ lọc bảo mật, nút đóng (✕).
-- **M5 — Safe Code Assistance:** Menu chuột phải (Explain/Fix/Tests), Diff Editor Preview (`vscode.diff`), bảo vệ thay đổi ngầm (Stale Document Protection), giải mã unescape HTML cho Action Cards.
+- **Verification Evidence:** Cập nhật toàn diện `README.md` v0.1.0 với hướng dẫn cài đặt VSIX, 3 bước deploy BYO Worker, danh mục lệnh và bảng tiến độ.

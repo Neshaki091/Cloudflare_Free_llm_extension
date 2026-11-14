@@ -10,8 +10,9 @@
   ],
   "scripts": {
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present",
-    "build": "npm run build --workspaces --if-present",
+    "test": "node --experimental-strip-types --test tests/shared-contracts.test.mjs tests/sse-parser.test.mjs tests/html-unescape.test.mjs tests/security-path-filter.test.mjs tests/markdown-actions.test.mjs",
+    "build:shared": "node ./scripts/build-shared.mjs",
+    "build": "npm run build:shared && npm run build:extension",
     "build:extension": "node ./scripts/build-extension.mjs",
     "package:spike": "powershell -ExecutionPolicy Bypass -File ./scripts/package-spike.ps1",
     "package:extension": "powershell -ExecutionPolicy Bypass -File ./scripts/package-extension.ps1",

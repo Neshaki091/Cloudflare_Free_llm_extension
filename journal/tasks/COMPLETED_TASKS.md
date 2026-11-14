@@ -6,6 +6,36 @@ Nơi lưu trữ chi tiết các nhiệm vụ đã đạt định nghĩa hoàn th
 
 ---
 
+## TASK-600 (Series TASK-601 đến TASK-602) — Chất Lượng Phần Mềm & Phát Hành Chính Thức v0.1.0 (M6)
+
+- **Status:** DONE
+- **Priority:** P0 (Quality & Release)
+- **Milestone:** M6 — Quality & Official Release
+- **Related SRS:** FR-007, SRS mục 9, 12, 13.4, 19
+- **Dependencies:** Hoàn thành M5
+- **Owner:** AI Lead Architect
+- **Updated:** 2026-11-14
+
+### Objective & Thực Hiện
+- **TASK-601 (Bộ Kiểm Thử Tự Động Toàn Diện):**
+  - Xây dựng 5 bộ kiểm thử tự động với Node.js Native Test Runner (`--experimental-strip-types`):
+    - `tests/shared-contracts.test.mjs`: Kiểm tra hằng số, giới hạn token (4096), và mã lỗi chuẩn.
+    - `tests/sse-parser.test.mjs`: Kiểm tra parser luồng SSE, phân mảnh chuỗi chunk, và xử lý ngắt dòng CRLF.
+    - `tests/html-unescape.test.mjs`: Kiểm tra phục hồi toán tử logic/so sánh (`<=`, `>=`, `<`, `>`, `&&`) trong code Python/TypeScript.
+    - `tests/security-path-filter.test.mjs`: Kiểm tra loại trừ file nhạy cảm (`.env`, `*.key`, `node_modules`) và chống Path Traversal (`../`).
+    - `tests/markdown-actions.test.mjs`: Kiểm tra trích xuất chính xác khối hành động `write_file` và `run_command` từ phản hồi của LLM.
+  - Kết quả kiểm thử: **13/13 bài kiểm thử ĐẠT (PASS 100%)** với thời gian chạy siêu tốc 211ms.
+- **TASK-602 (Tài Liệu Phát Hành & Hướng Dẫn BYO Worker):**
+  - Cập nhật toàn diện `README.md` chính thức cho bản phát hành v0.1.0:
+    - Mô tả đầy đủ các tính năng: Agentic Assistant, Diff Preview trực quan, Stale Document Protection, Smart Workspace Context, Editor Context Menu.
+    - Hướng dẫn cài đặt nhanh file VSIX vào Antigravity IDE.
+    - Hướng dẫn 3 bước tự deploy Cloudflare Worker backend miễn phí (`wrangler login`, `wrangler secret put`, `wrangler deploy`).
+    - Bảng danh mục lệnh và phím tắt hỗ trợ.
+  - Đóng gói file cài đặt VSIX chính thức: `build/nescode-antigravity-0.1.0.vsix` (31.371 bytes).
+  - Cài đặt và kích hoạt thành công trên Antigravity IDE.
+
+---
+
 ## TASK-500 (Series TASK-501 đến TASK-503) — Trợ Lý Mã Nguồn An Toàn & Phím Tắt Tiện Ích (M5)
 
 - **Status:** DONE

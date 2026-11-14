@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
 import { findProjectRootUri } from '../context/workspaceContext.js';
+import { sanitizeRelativePath } from '../../../shared/src/index.js';
 
 export interface ApplyFileResult {
   ok: boolean;
@@ -21,9 +22,9 @@ export async function previewFileDiff(relativePath: string, newContent: string):
     return false;
   }
 
-  const cleanPath = relativePath.trim().replace(/\\/g, '/').replace(/^\/+/, '');
-  if (!cleanPath || cleanPath.includes('..')) {
-    vscode.window.showErrorMessage('[NesCode] Đường dẫn file không an toàn.');
+  const cleanPath = sanitizeRelativePath(relativePath);
+  if (!cleanPath) {
+    vscode.window.showErrorMessage('[NesCode] Đường dẫn file không an toàn hoặc chứa path traversal.');
     return false;
   }
 
@@ -74,8 +75,8 @@ export async function applyFileChange(
     return { ok: false, message: 'Không tìm thấy thư mục dự án đang mở.' };
   }
 
-  const cleanPath = relativePath.trim().replace(/\\/g, '/').replace(/^\/+/, '');
-  if (!cleanPath || cleanPath.includes('..')) {
+  const cleanPath = sanitizeRelativePath(relativePath);
+  if (!cleanPath) {
     return { ok: false, message: 'Đường dẫn file không an toàn hoặc chứa path traversal.' };
   }
 

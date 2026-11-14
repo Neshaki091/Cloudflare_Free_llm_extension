@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { ContextFile } from '../../../shared/src/index.js';
+import { ContextFile, isExcludedPath } from '../../../shared/src/index.js';
 
 export interface WorkspaceSummary {
   rootUri: vscode.Uri;
@@ -12,47 +12,7 @@ export interface WorkspaceSummary {
 /**
  * Kiểm tra xem một file/thư mục có thuộc danh sách loại trừ bảo mật không.
  */
-export function isExcluded(name: string, relativePath: string): boolean {
-  const lowerName = name.toLowerCase();
-  const lowerPath = relativePath.toLowerCase().replace(/\\/g, '/');
-
-  // Thư mục cấm tuyệt đối
-  const excludedDirs = [
-    'node_modules',
-    '.git',
-    '.antigravity-ide',
-    '.gemini',
-    'dist',
-    'build',
-    'coverage',
-    '.next',
-    '.venv',
-    'venv',
-    '__pycache__',
-    '.idea',
-    '.vscode'
-  ];
-
-  for (const dir of excludedDirs) {
-    if (lowerName === dir || lowerPath.startsWith(dir + '/') || lowerPath.includes('/' + dir + '/')) {
-      return true;
-    }
-  }
-
-  // File nhạy cảm / bí mật cấm tuyệt đối
-  if (
-    lowerName === '.env' ||
-    lowerName.startsWith('.env.') ||
-    lowerName.endsWith('.pem') ||
-    lowerName.endsWith('.key') ||
-    lowerName.includes('credentials') ||
-    lowerName.includes('secret')
-  ) {
-    return true;
-  }
-
-  return false;
-}
+export const isExcluded = isExcludedPath;
 
 /**
  * Tính toán đường dẫn tương đối an toàn giữa baseUri và targetUri.

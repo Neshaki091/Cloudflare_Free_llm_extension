@@ -18,3 +18,4 @@ export function registerCodeActionCommands(chatProvider: ChatViewProvider): vsco
     })
   ];
 }
+

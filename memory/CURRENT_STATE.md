@@ -1,31 +1,38 @@
 # Trạng Thái Hiện Tại Của Dự Án (Current State)
 
-- **Ngày cập nhật gần nhất:** 2026-11-12
-- **Trạng thái:** Verified (Hoàn thành Milestone M0, M1, M2 và M3)
-- **Cột mốc tiếp theo:** `M4 — Context Engineering`
-- **Nguồn thông tin:** `https://nescode-ai-gateway.neshaki-ai-cloudflare.workers.dev`, `nescode.nescode-antigravity@0.1.0` đã cài đặt vào Antigravity IDE
+- **Ngày cập nhật gần nhất:** 2026-11-14
+- **Trạng thái:** Verified & Production Ready (Hoàn thành toàn bộ các Milestone từ M0 đến M6)
+- **Phiên bản hiện tại:** `nescode-antigravity@0.1.0` (VSIX Release)
+- **Nguồn thông tin:** `https://nescode-ai-gateway.neshaki-ai-cloudflare.workers.dev`, `nescode.nescode-antigravity@0.1.0` đã cài đặt vào Antigravity IDE, 13/13 tests automated pass.
 
 ---
 
 ## 1. Bức Tranh Tổng Thể (Project Snapshot)
 
-- **Backend Cloudflare Worker (M2):** ĐÃ TRIỂN KHAI THÀNH CÔNG trên Cloudflare Edge:
-  - URL: `https://nescode-ai-gateway.neshaki-ai-cloudflare.workers.dev`
-  - Đã xác minh phản hồi an toàn từ Cloudflare Edge.
-- **Tiện Ích Mở Rộng Extension MVP (M3):** ĐÃ HOÀN THÀNH, TÍCH HỢP MULTI-SESSION THEO TỪNG DỰ ÁN VÀ CÀI ĐẶT:
-  - Đã lập trình đầy đủ mã nguồn `src/extension/` (Webview Chat Panel, WorkerClient, SecretManager, commands).
-  - Tích hợp `SessionManager` lưu trữ cục bộ trong `context.workspaceState`: Mỗi workspace/dự án có danh sách các phiên chat độc lập, hỗ trợ tạo phiên mới, chuyển đổi phiên, xóa phiên và đặt tên thông minh từ câu hỏi đầu tiên. Dữ liệu lưu 100% cục bộ, không gửi ra ngoài.
-  - Đã đóng gói thành file VSIX chính thức: `build/nescode-antigravity-0.1.0.vsix` (19.595 bytes).
-  - Đã cài đặt thực tế vào Antigravity IDE: hiển thị `nescode.nescode-antigravity@0.1.0` trong danh sách tiện ích mở rộng đã cài đặt.
-- **Cột mốc tiếp theo:** `Milestone M4 (Context Engineering)` — Hoàn thiện tính năng chọn file nâng cao (Context Picker), lọc bảo mật tự động và kiểm soát ngân sách token (Context Budgeter).
+- **Backend Cloudflare Worker:** ĐANG HOẠT ĐỘNG TRỰC TUYẾN trên Cloudflare Edge:
+  - Worker Gateway URL: `https://nescode-ai-gateway.neshaki-ai-cloudflare.workers.dev`
+  - Mô hình AI mặc định: `@cf/zai-org/glm-4.7-flash` (Hạn mức Output 4096 tokens, streaming SSE cực nhanh).
+- **Tiện Ích Mở Rộng Extension (NesCode for Antigravity v0.1.0):**
+  - **Trợ Lý Thông Minh (Agentic Assistant):** Hỗ trợ sinh các khối hành động trực quan `write_file` (tạo/sửa file) và `run_command` (chạy terminal), bảo vệ người dùng bằng cơ chế Human Approval Gate.
+  - **So Sánh Trực Quan (Visual Diff Preview):** Xem trước thay đổi qua `vscode.diff` (xanh/đỏ) trước khi bấm Áp Dụng.
+  - **Bảo Vệ Tài Liệu Sửa Đổi Ngầm (Stale Document Protection):** Tự động phát hiện và cảnh báo nếu file có thay đổi chưa lưu (`isDirty`).
+  - **Menu Chuột Phải Trình Soạn Thảo (Editor Context Menu):** Tích hợp 3 lệnh thao tác nhanh: `Giải Thích Mã Nguồn (Explain)`, `Tìm & Sửa Lỗi (Fix)`, `Viết Kiểm Thử Tự Động (Generate Tests)`.
+  - **Kỹ Thuật Xây Dựng Ngữ Cảnh Tự Động (Smart Workspace Context):** Tự động nhận diện thư mục cha, đọc cấu trúc thư mục rút gọn và nạp tài liệu dự án cốt lõi (`README.md`, `TASK_BOARD.md`, `package.json`, active editor file) trong ~8k-10k ký tự, phản hồi sau 1-2 giây.
+  - **Bảo Mật Tuyệt Đối (Security Filter):** Tự động lọc bỏ các file nhạy cảm (`.env`, `*.pem`, `*.key`, `*credentials*`, `*secret*`) và ngăn chặn Path Traversal (`../`).
+  - **Đa Phiên & Lưu Trữ Bền Vững (Multi-Session):** Quản lý phiên độc lập theo từng dự án, lưu lịch sử và bản nháp trong `workspaceState`.
+- **Hệ Thống Kiểm Thử Tự Động:** 13/13 bài kiểm thử unit & integration vượt qua 100% với Node.js Native Test Runner.
+- **Gói Cài Đặt Chính Thức:** Đã đóng gói và cài đặt thành công `build/nescode-antigravity-0.1.0.vsix` (31.371 bytes) vào Antigravity IDE.
 
 ---
 
-## 2. Trạng Thái Chi Tiết Từng Module
+## 2. Bảng Theo Dõi Tiến Độ Toàn Diện
 
-| Phân Vùng | Trạng Thái | Tiến Độ / Chi Tiết |
-|---|---|---|
-| **Cột Mốc M0 (Spike)** | **DONE (GO)** | Đã kiểm chứng tính tương thích của Antigravity IDE qua gói `.vsix` thực tế. |
-| **Tầng Dùng Chung (Shared)** | **DONE** | Toàn bộ types, error codes, constants đã sẵn sàng trong `src/shared/`. |
-| **Backend Worker (M2)** | **DONE (Đang chạy live)** | Deployed live trên Cloudflare tại `https://nescode-ai-gateway.neshaki-ai-cloudflare.workers.dev`. |
-| **Tiện Ích Mở Rộng (M3)** | **DONE (Đã cài đặt)** | Đã cài đặt `nescode.nescode-antigravity@0.1.0` vào Antigravity IDE, sẵn sàng sử dụng. |
+| Cột Mốc | Tên Cột Mốc | Trạng Thái | Chi Tiết Nghiệm Thu |
+| :--- | :--- | :---: | :--- |
+| **M0** | Compatibility Spike | **DONE** | Antigravity IDE tương thích 100% với các Extension API công khai. |
+| **M1** | Project Foundation | **DONE** | Cấu trúc Monorepo, Shared contracts, TypeScript strict configs. |
+| **M2** | Cloudflare Backend | **DONE** | Gateway trực tuyến trên Edge, xác thực Bearer token, streaming SSE, 4096 tokens. |
+| **M3** | Extension MVP | **DONE** | Chat Webview Panel, Multi-session, SecretStorage, Output Channel. |
+| **M4** | Context Engineering | **DONE** | Tự nhận diện thư mục cha, nạp tài liệu tự động, bảo mật file, nút đóng [✕]. |
+| **M5** | Safe Code Assistance | **DONE** | Menu chuột phải (Explain/Fix/Tests), Diff Preview, Stale Document Protection, Unescape HTML. |
+| **M6** | Quality & Official Release | **DONE** | 13/13 tests tự động PASS (100%), hoàn thiện README.md, VSIX v0.1.0 xuất bản. |

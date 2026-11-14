@@ -79,12 +79,12 @@ var vscode = __toESM(require("vscode"));
 
 // src/extension/src/api/sseParser.ts
 var SseParser = class {
+  buffer = "";
+  currentEventName = "delta";
+  callbacks;
   constructor(callbacks) {
     this.callbacks = callbacks;
   }
-  callbacks;
-  buffer = "";
-  currentEventName = "delta";
   /**
    * Đẩy một chunk chuỗi ký tự nhận được từ HTTP stream vào parser.
    */
@@ -488,25 +488,27 @@ var vscode4 = __toESM(require("vscode"));
 
 // src/extension/src/context/workspaceContext.ts
 var vscode2 = __toESM(require("vscode"));
-function isExcluded(name, relativePath) {
+
+// src/shared/src/security.ts
+var EXCLUDED_DIRECTORIES = [
+  "node_modules",
+  ".git",
+  ".antigravity-ide",
+  ".gemini",
+  "dist",
+  "build",
+  "coverage",
+  ".next",
+  ".venv",
+  "venv",
+  "__pycache__",
+  ".idea",
+  ".vscode"
+];
+function isExcludedPath(name, relativePath) {
   const lowerName = name.toLowerCase();
   const lowerPath = relativePath.toLowerCase().replace(/\\/g, "/");
-  const excludedDirs = [
-    "node_modules",
-    ".git",
-    ".antigravity-ide",
-    ".gemini",
-    "dist",
-    "build",
-    "coverage",
-    ".next",
-    ".venv",
-    "venv",
-    "__pycache__",
-    ".idea",
-    ".vscode"
-  ];
-  for (const dir of excludedDirs) {
+  for (const dir of EXCLUDED_DIRECTORIES) {
     if (lowerName === dir || lowerPath.startsWith(dir + "/") || lowerPath.includes("/" + dir + "/")) {
       return true;
     }
@@ -516,6 +518,25 @@ function isExcluded(name, relativePath) {
   }
   return false;
 }
+function sanitizeRelativePath(rawPath) {
+  if (!rawPath || typeof rawPath !== "string") {
+    return null;
+  }
+  const normalized = rawPath.trim().replace(/\\/g, "/").replace(/^\/+/, "");
+  if (!normalized) {
+    return null;
+  }
+  const segments = normalized.split("/");
+  for (const seg of segments) {
+    if (seg === ".." || seg === ".") {
+      return null;
+    }
+  }
+  return normalized;
+}
+
+// src/extension/src/context/workspaceContext.ts
+var isExcluded = isExcludedPath;
 function getRelativePath(baseUri, targetUri) {
   const basePath = baseUri.path.replace(/\/+$/, "");
   const targetPath = targetUri.path;
@@ -767,9 +788,9 @@ async function previewFileDiff(relativePath, newContent) {
     vscode3.window.showErrorMessage("[NesCode] Kh\xF4ng t\xECm th\u1EA5y th\u01B0 m\u1EE5c d\u1EF1 \xE1n \u0111ang m\u1EDF.");
     return false;
   }
-  const cleanPath = relativePath.trim().replace(/\\/g, "/").replace(/^\/+/, "");
-  if (!cleanPath || cleanPath.includes("..")) {
-    vscode3.window.showErrorMessage("[NesCode] \u0110\u01B0\u1EDDng d\u1EABn file kh\xF4ng an to\xE0n.");
+  const cleanPath = sanitizeRelativePath(relativePath);
+  if (!cleanPath) {
+    vscode3.window.showErrorMessage("[NesCode] \u0110\u01B0\u1EDDng d\u1EABn file kh\xF4ng an to\xE0n ho\u1EB7c ch\u1EE9a path traversal.");
     return false;
   }
   const targetUri = vscode3.Uri.joinPath(rootInfo.uri, cleanPath);
@@ -803,8 +824,8 @@ async function applyFileChange(relativePath, newContent) {
   if (!rootInfo) {
     return { ok: false, message: "Kh\xF4ng t\xECm th\u1EA5y th\u01B0 m\u1EE5c d\u1EF1 \xE1n \u0111ang m\u1EDF." };
   }
-  const cleanPath = relativePath.trim().replace(/\\/g, "/").replace(/^\/+/, "");
-  if (!cleanPath || cleanPath.includes("..")) {
+  const cleanPath = sanitizeRelativePath(relativePath);
+  if (!cleanPath) {
     return { ok: false, message: "\u0110\u01B0\u1EDDng d\u1EABn file kh\xF4ng an to\xE0n ho\u1EB7c ch\u1EE9a path traversal." };
   }
   const targetUri = vscode3.Uri.joinPath(rootInfo.uri, cleanPath);

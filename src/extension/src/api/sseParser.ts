@@ -1,4 +1,4 @@
-import {
+import type {
   DeltaEventData,
   DoneEventData,
   ErrorEventData,
@@ -17,8 +17,11 @@ export interface SseParserCallbacks {
 export class SseParser {
   private buffer = '';
   private currentEventName = 'delta';
+  private readonly callbacks: SseParserCallbacks;
 
-  constructor(private readonly callbacks: SseParserCallbacks) {}
+  constructor(callbacks: SseParserCallbacks) {
+    this.callbacks = callbacks;
+  }
 
   /**
    * Đẩy một chunk chuỗi ký tự nhận được từ HTTP stream vào parser.
