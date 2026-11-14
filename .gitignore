@@ -56,3 +56,7 @@ $RECYCLE.BIN/
 # Test coverage
 coverage/
 .nyc_output/
+
+# Python temporary files
+__pycache__/
+*.py[cod]
