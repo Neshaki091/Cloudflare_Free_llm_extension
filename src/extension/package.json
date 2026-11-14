@@ -32,8 +32,39 @@
         "command": "nescode.checkConnection",
         "title": "NesCode: Kiểm Tra Kết Nối",
         "category": "NesCode"
+      },
+      {
+        "command": "nescode.explainCode",
+        "title": "NesCode: Giải Thích Mã Nguồn (Explain)",
+        "category": "NesCode"
+      },
+      {
+        "command": "nescode.fixCode",
+        "title": "NesCode: Tìm & Sửa Lỗi Đoạn Mã (Fix)",
+        "category": "NesCode"
+      },
+      {
+        "command": "nescode.generateTests",
+        "title": "NesCode: Viết Kiểm Thử Tự Động (Tests)",
+        "category": "NesCode"
       }
     ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "nescode.explainCode",
+          "group": "nescode_actions@1"
+        },
+        {
+          "command": "nescode.fixCode",
+          "group": "nescode_actions@2"
+        },
+        {
+          "command": "nescode.generateTests",
+          "group": "nescode_actions@3"
+        }
+      ]
+    },
     "viewsContainers": {
       "activitybar": [
         {

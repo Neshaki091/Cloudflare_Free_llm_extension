@@ -103,6 +103,7 @@ function renderMarkdown(rawText) {
       '<div class="action-card-body">' + codeContent.trim() + '</div>' +
       '<div class="action-card-footer">' +
         '<button class="action-btn dismiss-btn" onclick="dismissActionCard(this)">✕ Bỏ qua</button>' +
+        '<button class="action-btn diff-btn" onclick="diffFileAction(\'' + actionId + '\')">🔍 Xem So Sánh (Diff)</button>' +
         '<button class="action-btn apply-btn" onclick="applyFileAction(\'' + actionId + '\')">✓ Áp Dụng Thay Đổi</button>' +
       '</div>' +
     '</div>';
@@ -192,6 +193,18 @@ window.applyFileAction = function(actionId) {
         btn.disabled = true;
       }
     }
+  }
+};
+
+window.diffFileAction = function(actionId) {
+  const act = window.__actionStore && window.__actionStore[actionId];
+  if (act) {
+    vscode.postMessage({
+      type: 'DIFF_FILE_ACTION',
+      actionId,
+      path: act.path,
+      content: act.content
+    });
   }
 };
 

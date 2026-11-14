@@ -633,6 +633,15 @@ textarea:focus {
   color: #ffffff;
 }
 
+.action-btn.diff-btn {
+  background: #4a148c;
+  color: #ffffff;
+}
+
+.action-btn.diff-btn:hover {
+  background: #6a1b9a;
+}
+
 .action-btn.dismiss-btn {
   background: transparent;
   border: 1px solid var(--border-color);

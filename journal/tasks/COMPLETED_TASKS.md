@@ -1,8 +1,45 @@
 # Danh Sách Công Việc Đã Hoàn Thành (Completed Tasks)
 
-- **Ngày cập nhật:** 2026-11-12
+- **Ngày cập nhật:** 2026-11-14
 
 Nơi lưu trữ chi tiết các nhiệm vụ đã đạt định nghĩa hoàn thành (Definition of Done), kèm theo tiêu chí nghiệm thu và bằng chứng xác minh cụ thể.
+
+---
+
+## TASK-500 (Series TASK-501 đến TASK-503) — Trợ Lý Mã Nguồn An Toàn & Phím Tắt Tiện Ích (M5)
+
+- **Status:** DONE
+- **Priority:** P0 (Safe Code Assistance)
+- **Milestone:** M5 — Safe Code Assistance
+- **Related SRS:** FR-030, FR-031, FR-032, FR-033, FR-034, FR-035, FR-036, FR-037
+- **Dependencies:** Hoàn thành M4
+- **Owner:** AI Lead Architect
+- **Updated:** 2026-11-14
+
+### Objective & Thực Hiện
+- **TASK-501 (Editor Context Menu):** Đăng ký các lệnh vào menu ngữ cảnh chuột phải của Editor: `nescode.explainCode`, `nescode.fixCode`, `nescode.generateTests`. Tự động bóc tách selection hoặc active file và kích hoạt chat prompt ngay tức thì.
+- **TASK-502 (Diff Editor Preview):** Tích hợp nút `[🔍 Xem So Sánh (Diff)]` trên thẻ hành động `write_file`. Mở trực tiếp tab so sánh `vscode.diff` (Bản gốc ⟷ Bản đề xuất của AI) để lập trình viên kiểm tra chi tiết từng dòng thay đổi xanh/đỏ trước khi áp dụng.
+- **TASK-503 (Stale Document Protection):** Tích hợp cơ chế bảo vệ trong `patchManager.ts`. Nếu file đang có sửa đổi chưa lưu (`isDirty`), hiển thị hộp thoại cảnh báo để tránh ghi đè làm mất mã nguồn người dùng.
+- **Sửa lỗi Unescape HTML:** Bổ sung hàm giải mã `unescapeHtml()` trước khi nạp code vào Action Store, loại bỏ hoàn toàn các lỗi `&lt;=`, `&gt;`, `&amp;` khi áp dụng code vào file hoặc chạy trong terminal.
+
+---
+
+## TASK-400 (Series TASK-401 đến TASK-403) — Kỹ Thuật Xây Dựng Ngữ Cảnh & Autonomous Coding Agent (M4)
+
+- **Status:** DONE
+- **Priority:** P0 (Context Engineering)
+- **Milestone:** M4 — Context Engineering
+- **Related SRS:** FR-020 đến FR-027, NFR-SEC-008, NFR-PERF-004
+- **Dependencies:** Hoàn thành M3
+- **Owner:** AI Lead Architect
+- **Updated:** 2026-11-14
+
+### Objective & Thực Hiện
+- Tự động nhận diện thư mục cha/thư mục gốc dự án (`findProjectRootUri`).
+- Tự động đọc và tinh gọn các tệp cốt lõi (`README.md`, `TASK_BOARD.md`, `package.json`, active editor file).
+- Loại trừ nghiêm ngặt các file bí mật (`.env`, `*.key`, `node_modules`).
+- Tích hợp các nút đóng (✕) trên Header, chip context file và thẻ hành động Action Card.
+- Nâng trần Output Token lên 4096 tokens trên Cloudflare Worker và Extension.
 
 ---
 

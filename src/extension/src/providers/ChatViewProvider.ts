@@ -3,7 +3,7 @@ import { ChatMode, ChatRequest, RequestContext } from '../../../shared/src/index
 import { WorkerClient } from '../api/workerClient.js';
 import { SessionManager, ChatSession, WebviewChatMessage } from '../history/localConversationStore.js';
 import { findProjectRootUri, getWorkspaceSummary, collectProjectContextFiles } from '../context/workspaceContext.js';
-import { applyFileChange, executeTerminalCommand, openFileInEditor } from '../agent/patchManager.js';
+import { applyFileChange, executeTerminalCommand, openFileInEditor, previewFileDiff } from '../agent/patchManager.js';
 
 export class ChatViewProvider implements vscode.WebviewViewProvider {
   private view?: vscode.WebviewView;
@@ -126,6 +126,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           }
           break;
 
+        case 'DIFF_FILE_ACTION':
+          if (typeof message.path === 'string' && typeof message.content === 'string') {
+            await previewFileDiff(message.path, message.content);
+          }
+          break;
+
         case 'CLOSE_VIEW':
           try {
             await vscode.commands.executeCommand('workbench.action.closeSidebar');
@@ -202,7 +208,37 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     });
   }
 
-  private async handleUserPrompt(
+  /**
+   * Kích hoạt prompt trực tiếp từ các lệnh menu chuột phải (Explain, Fix, Generate Tests).
+   */
+  public async executeEditorPrompt(mode: ChatMode): Promise<void> {
+    await vscode.commands.executeCommand('nescode.chatView.focus');
+
+    const editor = vscode.window.activeTextEditor;
+    const hasSelection = editor && !editor.selection.isEmpty && editor.document.getText(editor.selection).trim().length > 0;
+    const fileName = editor ? vscode.workspace.asRelativePath(editor.document.uri) : '';
+
+    let prompt = '';
+    if (mode === 'explain') {
+      prompt = hasSelection
+        ? `Hãy giải thích chi tiết mục đích, luồng hoạt động và các điểm lưu ý của đoạn mã đang chọn trong tệp ${fileName}.`
+        : `Hãy giải thích tổng quan kiến trúc, chức năng chính và luồng xử lý của tệp ${fileName}.`;
+    } else if (mode === 'fix') {
+      prompt = hasSelection
+        ? `Hãy rà soát đoạn mã đang chọn trong tệp ${fileName}, chỉ ra các lỗi logic, bảo mật hoặc hiệu năng và đề xuất bản sửa lỗi.`
+        : `Hãy rà soát toàn bộ tệp ${fileName}, tìm các lỗi tiềm ẩn và đề xuất bản sửa lỗi hoàn chỉnh.`;
+    } else if (mode === 'generate_tests') {
+      prompt = hasSelection
+        ? `Hãy tạo một bộ kiểm thử đơn vị (unit tests) hoàn chỉnh cho đoạn mã đang chọn trong tệp ${fileName}, bao gồm cả các trường hợp biên.`
+        : `Hãy tạo bộ kiểm thử đơn vị (unit tests) đầy đủ cho các hàm và lớp trong tệp ${fileName}.`;
+    } else {
+      prompt = `Xin chào! Tôi cần hỗ trợ lập trình với tệp ${fileName}.`;
+    }
+
+    await this.handleUserPrompt(prompt, mode, true);
+  }
+
+  public async handleUserPrompt(
     promptText: string,
     mode: ChatMode = 'chat',
     attachContext = true

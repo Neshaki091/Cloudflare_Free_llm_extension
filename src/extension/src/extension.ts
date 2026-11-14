@@ -6,6 +6,7 @@ import { ChatViewProvider } from './providers/ChatViewProvider.js';
 import { registerConfigureConnectionCommand } from './commands/configureConnection.js';
 import { registerCheckConnectionCommand } from './commands/checkConnection.js';
 import { registerOpenChatCommand } from './commands/openChat.js';
+import { registerCodeActionCommands } from './commands/codeActions.js';
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const outputChannel = vscode.window.createOutputChannel('NesCode AI');
@@ -32,6 +33,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
   context.subscriptions.push(
     registerOpenChatCommand()
+  );
+  context.subscriptions.push(
+    ...registerCodeActionCommands(chatProvider)
   );
 
   outputChannel.appendLine('[NesCode] Tiện ích NesCode for Antigravity đã kích hoạt thành công.');
