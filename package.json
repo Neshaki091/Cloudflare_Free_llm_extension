@@ -10,7 +10,7 @@
   ],
   "scripts": {
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "node --experimental-strip-types --test tests/shared-contracts.test.mjs tests/sse-parser.test.mjs tests/html-unescape.test.mjs tests/security-path-filter.test.mjs tests/markdown-actions.test.mjs",
+    "test": "node --experimental-strip-types --test tests/shared-contracts.test.mjs tests/sse-parser.test.mjs tests/html-unescape.test.mjs tests/security-path-filter.test.mjs tests/markdown-actions.test.mjs tests/context-compressor.test.mjs",
     "build:shared": "node ./scripts/build-shared.mjs",
     "build": "npm run build:shared && npm run build:extension",
     "build:extension": "node ./scripts/build-extension.mjs",

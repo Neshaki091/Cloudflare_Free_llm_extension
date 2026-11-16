@@ -16,3 +16,4 @@ if (existsSync(npmCacheBase)) {
 
 execSync(`${esbuildBin} src/shared/src/index.ts --bundle --platform=node --format=esm --outfile=src/shared/dist/index.js`, { stdio: 'inherit' });
 console.log('[NesCode] Đã biên dịch shared -> src/shared/dist/index.js');
+

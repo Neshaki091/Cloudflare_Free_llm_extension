@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { ContextFile, isExcludedPath } from '../../../shared/src/index.js';
+import { compressContextFiles } from './contextCompressor.js';
 
 export interface WorkspaceSummary {
   rootUri: vscode.Uri;
@@ -75,7 +76,19 @@ async function searchUpwardsForRoot(startUri: vscode.Uri): Promise<{ uri: vscode
       currentDir = vscode.Uri.joinPath(startUri, '..');
     }
 
-    const markers = ['.git', 'package.json', 'wrangler.jsonc', 'wrangler.toml', 'Cargo.toml', 'pyproject.toml', 'go.mod'];
+    const markers = [
+      '.git',
+      'package.json',
+      'requirements.txt',
+      'pyproject.toml',
+      'setup.py',
+      'app.py',
+      'main.py',
+      'wrangler.jsonc',
+      'wrangler.toml',
+      'Cargo.toml',
+      'go.mod'
+    ];
 
     // Lặp ngược lên tối đa 6 cấp thư mục cha
     for (let depth = 0; depth < 6; depth++) {
@@ -230,7 +243,7 @@ export async function collectProjectContextFiles(
     'TODO.md'
   ];
   for (const tPath of taskPaths) {
-    if (await tryReadFile(tPath, 2500)) break;
+    if (await tryReadFile(tPath, 3000)) break;
   }
 
   // 2. Đọc tệp tổng quan dự án (README.md)
@@ -239,20 +252,45 @@ export async function collectProjectContextFiles(
     'journal/requirements/SRS.md'
   ];
   for (const dPath of docPaths) {
-    if (await tryReadFile(dPath, 2500)) break;
+    if (await tryReadFile(dPath, 3000)) break;
   }
 
-  // 3. Đọc manifest dự án (package.json)
-  await tryReadFile('package.json', 1500);
+  // 3. Đọc manifest dự án (package.json, requirements.txt, pyproject.toml)
+  const manifestCandidates = ['package.json', 'requirements.txt', 'pyproject.toml', 'Cargo.toml', 'go.mod'];
+  for (const mPath of manifestCandidates) {
+    await tryReadFile(mPath, 2000);
+  }
 
-  // 4. Quét tệp được nhắc tên cụ thể trong prompt của người dùng (nếu có)
+  // 4. Tự động tìm và nạp các entry point / file mã nguồn cốt lõi của dự án (Python, TS, JS, Go, Rust)
+  const coreEntryCandidates = [
+    'app.py',
+    'main.py',
+    'server.py',
+    'manage.py',
+    'src/index.ts',
+    'src/app.ts',
+    'src/main.ts',
+    'src/server.ts',
+    'index.js',
+    'app.js',
+    'server.js',
+    'main.go',
+    'src/main.rs',
+    'index.html'
+  ];
+  for (const entryPath of coreEntryCandidates) {
+    if (result.length >= 8) break;
+    await tryReadFile(entryPath, 5000);
+  }
+
+  // 5. Quét tệp được nhắc tên cụ thể trong prompt của người dùng (có hoặc không có đuôi mở rộng)
   const fileMentionRegex = /(?:[\w.-]+[\\/])*[\w.-]+\.(?:ts|js|tsx|jsx|json|md|html|css|py|rs|go|ps1|yml|yaml)/gi;
   const matches = promptText.match(fileMentionRegex);
   if (matches) {
     for (const match of matches) {
-      if (result.length >= 5) break;
+      if (result.length >= 10) break;
       const cleanMatch = match.replace(/^[./\\]+/, '').trim();
-      const ok = await tryReadFile(cleanMatch, 4000);
+      const ok = await tryReadFile(cleanMatch, 5000);
       if (!ok) {
         try {
           const fileNameOnly = cleanMatch.split(/[\\/]/).pop();
@@ -260,7 +298,7 @@ export async function collectProjectContextFiles(
             const foundUris = await vscode.workspace.findFiles(`**/${fileNameOnly}`, '**/node_modules/**', 1);
             for (const fUri of foundUris) {
               const rel = getRelativePath(rootUri, fUri);
-              await tryReadFile(rel, 4000);
+              await tryReadFile(rel, 5000);
               break;
             }
           }
@@ -271,7 +309,49 @@ export async function collectProjectContextFiles(
     }
   }
 
-  // 5. Nếu có active editor và chưa được đọc, thêm vào (tối đa 3000 ký tự)
+  // 6. Quét từ khóa tiềm năng trong câu hỏi (ví dụ: "app", "scanners", "scanner", "model", "primes")
+  const potentialWords = promptText
+    .split(/[\s,.;:!?()[\]{}"'`]+/)
+    .map((w) => w.trim().toLowerCase())
+    .filter((w) => w.length >= 3 && !['cho', 'tôi', 'hãy', 'xem', 'code', 'file', 'kiem', 'tra', 'chay', 'du', 'an', 'nay', 'lam', 'the', 'nao', 'what', 'this', 'that', 'with'].includes(w));
+
+  for (const word of potentialWords) {
+    if (result.length >= 8) break;
+    try {
+      const matchedUris = await vscode.workspace.findFiles(
+        `**/*${word}*.{py,ts,js,tsx,jsx,go,rs,json}`,
+        '{**/node_modules/**,**/.git/**,**/dist/**,**/build/**,**/.venv/**}',
+        2
+      );
+      for (const fUri of matchedUris) {
+        const rel = getRelativePath(rootUri, fUri);
+        await tryReadFile(rel, 5000);
+        if (result.length >= 8) break;
+      }
+    } catch {
+      // Bỏ qua
+    }
+  }
+
+  // 7. Nếu vẫn có ít hơn 3 file mã nguồn, tự động khám phá các file source code thực tế trong workspace
+  if (result.length < 3) {
+    try {
+      const commonCodeFiles = await vscode.workspace.findFiles(
+        '**/*.{py,ts,js,tsx,jsx,go,rs}',
+        '{**/node_modules/**,**/.git/**,**/dist/**,**/build/**,**/.venv/**,**/__pycache__/**}',
+        5
+      );
+      for (const fUri of commonCodeFiles) {
+        if (result.length >= 6) break;
+        const rel = getRelativePath(rootUri, fUri);
+        await tryReadFile(rel, 4000);
+      }
+    } catch {
+      // Bỏ qua
+    }
+  }
+
+  // 8. Nếu có active editor và chưa được đọc, thêm vào (tối đa 4000 ký tự)
   if (activeDoc && activeDoc.uri.scheme === 'file') {
     const activeRelPath = getRelativePath(rootUri, activeDoc.uri);
     const activeBaseName = activeRelPath.split(/[\\/]/).pop() || '';
@@ -281,13 +361,14 @@ export async function collectProjectContextFiles(
         result.push({
           path: activeRelPath,
           language: activeDoc.languageId,
-          content: content.slice(0, 3000)
+          content: content.slice(0, 4000)
         });
       }
     }
   }
 
-  return result;
+  // 9. Nén ngữ cảnh thông minh: phân bổ ngân sách, loại bỏ dòng trống thừa và bảo toàn code
+  return compressContextFiles(result, 24000);
 }
 
 function getLanguageFromPath(pathStr: string): string {

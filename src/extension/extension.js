@@ -486,9 +486,6 @@ var SessionManager = class {
 // src/extension/src/providers/ChatViewProvider.ts
 var vscode4 = __toESM(require("vscode"));
 
-// src/extension/src/context/workspaceContext.ts
-var vscode2 = __toESM(require("vscode"));
-
 // src/shared/src/security.ts
 var EXCLUDED_DIRECTORIES = [
   "node_modules",
@@ -536,6 +533,48 @@ function sanitizeRelativePath(rawPath) {
 }
 
 // src/extension/src/context/workspaceContext.ts
+var vscode2 = __toESM(require("vscode"));
+
+// src/extension/src/context/contextCompressor.ts
+var DEFAULT_MAX_CHARS_PER_FILE = 6e3;
+var DEFAULT_TOTAL_BUDGET_CHARS = 24e3;
+function compressFileContent(content, maxChars = DEFAULT_MAX_CHARS_PER_FILE, language = "plaintext") {
+  if (!content) return "";
+  const normalized = content.replace(/\r\n/g, "\n").split("\n").map((line) => line.trimEnd()).join("\n");
+  const collapsed = normalized.replace(/\n{3,}/g, "\n\n").trim();
+  if (collapsed.length <= maxChars) {
+    return collapsed;
+  }
+  const sliceIndex = collapsed.lastIndexOf("\n", maxChars);
+  const truncatedText = sliceIndex > 0 ? collapsed.slice(0, sliceIndex) : collapsed.slice(0, maxChars);
+  const commentPrefix = language === "python" || language === "shellscript" ? "#" : "//";
+  return `${truncatedText}
+
+${commentPrefix} ... [\u0110\xE3 n\xE9n v\xE0 r\xFAt g\u1ECDn ph\u1EA7n c\xF2n l\u1EA1i \u0111\u1EC3 t\u1ED1i \u01B0u h\xF3a ng\xE2n s\xE1ch ng\u1EEF c\u1EA3nh] ...`;
+}
+function compressContextFiles(files, totalBudgetChars = DEFAULT_TOTAL_BUDGET_CHARS) {
+  if (!files || files.length === 0) return [];
+  const maxPerFile = Math.max(2e3, Math.floor(totalBudgetChars / files.length));
+  let currentTotal = 0;
+  const compressedFiles = [];
+  for (const file of files) {
+    if (currentTotal >= totalBudgetChars) break;
+    const remainingBudget = totalBudgetChars - currentTotal;
+    const allowedForThisFile = Math.min(maxPerFile, remainingBudget);
+    const compressedContent = compressFileContent(file.content, allowedForThisFile, file.language);
+    if (compressedContent.trim()) {
+      compressedFiles.push({
+        path: file.path,
+        language: file.language,
+        content: compressedContent
+      });
+      currentTotal += compressedContent.length;
+    }
+  }
+  return compressedFiles;
+}
+
+// src/extension/src/context/workspaceContext.ts
 var isExcluded = isExcludedPath;
 function getRelativePath(baseUri, targetUri) {
   const basePath = baseUri.path.replace(/\/+$/, "");
@@ -580,7 +619,19 @@ async function searchUpwardsForRoot(startUri) {
     if (stat.type !== vscode2.FileType.Directory) {
       currentDir = vscode2.Uri.joinPath(startUri, "..");
     }
-    const markers = [".git", "package.json", "wrangler.jsonc", "wrangler.toml", "Cargo.toml", "pyproject.toml", "go.mod"];
+    const markers = [
+      ".git",
+      "package.json",
+      "requirements.txt",
+      "pyproject.toml",
+      "setup.py",
+      "app.py",
+      "main.py",
+      "wrangler.jsonc",
+      "wrangler.toml",
+      "Cargo.toml",
+      "go.mod"
+    ];
     for (let depth = 0; depth < 6; depth++) {
       for (const marker of markers) {
         try {
@@ -695,23 +746,46 @@ async function collectProjectContextFiles(rootUri, promptText, activeDoc) {
     "TODO.md"
   ];
   for (const tPath of taskPaths) {
-    if (await tryReadFile(tPath, 2500)) break;
+    if (await tryReadFile(tPath, 3e3)) break;
   }
   const docPaths = [
     "README.md",
     "journal/requirements/SRS.md"
   ];
   for (const dPath of docPaths) {
-    if (await tryReadFile(dPath, 2500)) break;
+    if (await tryReadFile(dPath, 3e3)) break;
   }
-  await tryReadFile("package.json", 1500);
+  const manifestCandidates = ["package.json", "requirements.txt", "pyproject.toml", "Cargo.toml", "go.mod"];
+  for (const mPath of manifestCandidates) {
+    await tryReadFile(mPath, 2e3);
+  }
+  const coreEntryCandidates = [
+    "app.py",
+    "main.py",
+    "server.py",
+    "manage.py",
+    "src/index.ts",
+    "src/app.ts",
+    "src/main.ts",
+    "src/server.ts",
+    "index.js",
+    "app.js",
+    "server.js",
+    "main.go",
+    "src/main.rs",
+    "index.html"
+  ];
+  for (const entryPath of coreEntryCandidates) {
+    if (result.length >= 8) break;
+    await tryReadFile(entryPath, 5e3);
+  }
   const fileMentionRegex = /(?:[\w.-]+[\\/])*[\w.-]+\.(?:ts|js|tsx|jsx|json|md|html|css|py|rs|go|ps1|yml|yaml)/gi;
   const matches = promptText.match(fileMentionRegex);
   if (matches) {
     for (const match of matches) {
-      if (result.length >= 5) break;
+      if (result.length >= 10) break;
       const cleanMatch = match.replace(/^[./\\]+/, "").trim();
-      const ok = await tryReadFile(cleanMatch, 4e3);
+      const ok = await tryReadFile(cleanMatch, 5e3);
       if (!ok) {
         try {
           const fileNameOnly = cleanMatch.split(/[\\/]/).pop();
@@ -719,13 +793,45 @@ async function collectProjectContextFiles(rootUri, promptText, activeDoc) {
             const foundUris = await vscode2.workspace.findFiles(`**/${fileNameOnly}`, "**/node_modules/**", 1);
             for (const fUri of foundUris) {
               const rel = getRelativePath(rootUri, fUri);
-              await tryReadFile(rel, 4e3);
+              await tryReadFile(rel, 5e3);
               break;
             }
           }
         } catch {
         }
       }
+    }
+  }
+  const potentialWords = promptText.split(/[\s,.;:!?()[\]{}"'`]+/).map((w) => w.trim().toLowerCase()).filter((w) => w.length >= 3 && !["cho", "t\xF4i", "h\xE3y", "xem", "code", "file", "kiem", "tra", "chay", "du", "an", "nay", "lam", "the", "nao", "what", "this", "that", "with"].includes(w));
+  for (const word of potentialWords) {
+    if (result.length >= 8) break;
+    try {
+      const matchedUris = await vscode2.workspace.findFiles(
+        `**/*${word}*.{py,ts,js,tsx,jsx,go,rs,json}`,
+        "{**/node_modules/**,**/.git/**,**/dist/**,**/build/**,**/.venv/**}",
+        2
+      );
+      for (const fUri of matchedUris) {
+        const rel = getRelativePath(rootUri, fUri);
+        await tryReadFile(rel, 5e3);
+        if (result.length >= 8) break;
+      }
+    } catch {
+    }
+  }
+  if (result.length < 3) {
+    try {
+      const commonCodeFiles = await vscode2.workspace.findFiles(
+        "**/*.{py,ts,js,tsx,jsx,go,rs}",
+        "{**/node_modules/**,**/.git/**,**/dist/**,**/build/**,**/.venv/**,**/__pycache__/**}",
+        5
+      );
+      for (const fUri of commonCodeFiles) {
+        if (result.length >= 6) break;
+        const rel = getRelativePath(rootUri, fUri);
+        await tryReadFile(rel, 4e3);
+      }
+    } catch {
     }
   }
   if (activeDoc && activeDoc.uri.scheme === "file") {
@@ -737,12 +843,12 @@ async function collectProjectContextFiles(rootUri, promptText, activeDoc) {
         result.push({
           path: activeRelPath,
           language: activeDoc.languageId,
-          content: content.slice(0, 3e3)
+          content: content.slice(0, 4e3)
         });
       }
     }
   }
-  return result;
+  return compressContextFiles(result, 24e3);
 }
 function getLanguageFromPath(pathStr) {
   const ext = pathStr.split(".").pop()?.toLowerCase();
@@ -988,6 +1094,11 @@ var ChatViewProvider = class {
         case "OPEN_FILE":
           if (typeof message.path === "string") {
             await openFileInEditor(message.path);
+          }
+          break;
+        case "READ_AND_FEED_FILE":
+          if (typeof message.path === "string") {
+            await this.handleAgentReadFile(message.path);
           }
           break;
         case "DIFF_FILE_ACTION":
@@ -1248,6 +1359,36 @@ ${wsSummary.fileTree}`;
           this.currentSession.messages
         );
       }
+    }
+  }
+  /**
+   * Tự động đọc file theo đề xuất của Agent và gửi tiếp ngữ cảnh vào luồng hội thoại
+   */
+  async handleAgentReadFile(relativePath) {
+    const rootInfo = await findProjectRootUri();
+    if (!rootInfo) {
+      vscode4.window.showErrorMessage("[NesCode] Kh\xF4ng t\xECm th\u1EA5y th\u01B0 m\u1EE5c d\u1EF1 \xE1n \u0111ang m\u1EDF.");
+      return;
+    }
+    const cleanPath = sanitizeRelativePath(relativePath);
+    if (!cleanPath) {
+      vscode4.window.showErrorMessage("[NesCode] \u0110\u01B0\u1EDDng d\u1EABn t\u1EC7p kh\xF4ng an to\xE0n ho\u1EB7c ch\u1EE9a path traversal.");
+      return;
+    }
+    try {
+      const fileUri = vscode4.Uri.joinPath(rootInfo.uri, cleanPath);
+      const bytes = await vscode4.workspace.fs.readFile(fileUri);
+      const rawContent = new TextDecoder("utf-8").decode(bytes);
+      const lang = cleanPath.split(".").pop() || "plaintext";
+      const compressed = compressFileContent(rawContent, 8e3, lang);
+      const agentFollowUpPrompt = `[H\u1EC6 TH\u1ED0NG AGENT: \u0110\xC3 T\u1EF0 \u0110\u1ED8NG \u0110\u1ECCC T\u1EC6P ${cleanPath}]
+\`\`\`${lang}
+${compressed}
+\`\`\`
+H\xE3y ti\u1EBFp t\u1EE5c ph\xE2n t\xEDch k\u1EF9 l\u01B0\u1EE1ng n\u1ED9i dung t\u1EC7p n\xE0y, ki\u1EC3m tra t\xEDnh \u1ED5n \u0111\u1ECBnh, t\xECm l\u1ED7i ho\u1EB7c \u0111\u1EC1 xu\u1EA5t b\u1EA3n s\u1EEDa l\u1ED7i ho\xE0n ch\u1EC9nh cho t\xF4i.`;
+      await this.handleUserPrompt(agentFollowUpPrompt, "chat", true);
+    } catch (err) {
+      vscode4.window.showErrorMessage(`[NesCode] Kh\xF4ng th\u1EC3 \u0111\u1ECDc t\u1EC7p ${cleanPath}: ${err?.message || err}`);
     }
   }
   getHtmlForWebview(webview) {

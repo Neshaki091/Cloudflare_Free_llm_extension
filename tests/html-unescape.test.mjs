@@ -32,3 +32,4 @@ test('HTML Unescaping - Handles single quotes and edge cases safely', () => {
   assert.equal(unescapeHtml(null), '');
   assert.equal(unescapeHtml(undefined), '');
 });
+

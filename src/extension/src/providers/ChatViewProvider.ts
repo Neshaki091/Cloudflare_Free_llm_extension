@@ -1,9 +1,10 @@
 import * as vscode from 'vscode';
-import { ChatMode, ChatRequest, RequestContext } from '../../../shared/src/index.js';
+import { ChatMode, ChatRequest, RequestContext, sanitizeRelativePath } from '../../../shared/src/index.js';
 import { WorkerClient } from '../api/workerClient.js';
 import { SessionManager, ChatSession, WebviewChatMessage } from '../history/localConversationStore.js';
 import { findProjectRootUri, getWorkspaceSummary, collectProjectContextFiles } from '../context/workspaceContext.js';
 import { applyFileChange, executeTerminalCommand, openFileInEditor, previewFileDiff } from '../agent/patchManager.js';
+import { compressFileContent } from '../context/contextCompressor.js';
 
 export class ChatViewProvider implements vscode.WebviewViewProvider {
   private view?: vscode.WebviewView;
@@ -123,6 +124,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         case 'OPEN_FILE':
           if (typeof message.path === 'string') {
             await openFileInEditor(message.path);
+          }
+          break;
+
+        case 'READ_AND_FEED_FILE':
+          if (typeof message.path === 'string') {
+            await this.handleAgentReadFile(message.path);
           }
           break;
 
@@ -437,6 +444,37 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           this.currentSession.messages
         );
       }
+    }
+  }
+
+  /**
+   * Tự động đọc file theo đề xuất của Agent và gửi tiếp ngữ cảnh vào luồng hội thoại
+   */
+  public async handleAgentReadFile(relativePath: string): Promise<void> {
+    const rootInfo = await findProjectRootUri();
+    if (!rootInfo) {
+      vscode.window.showErrorMessage('[NesCode] Không tìm thấy thư mục dự án đang mở.');
+      return;
+    }
+
+    const cleanPath = sanitizeRelativePath(relativePath);
+    if (!cleanPath) {
+      vscode.window.showErrorMessage('[NesCode] Đường dẫn tệp không an toàn hoặc chứa path traversal.');
+      return;
+    }
+
+    try {
+      const fileUri = vscode.Uri.joinPath(rootInfo.uri, cleanPath);
+      const bytes = await vscode.workspace.fs.readFile(fileUri);
+      const rawContent = new TextDecoder('utf-8').decode(bytes);
+      const lang = cleanPath.split('.').pop() || 'plaintext';
+      const compressed = compressFileContent(rawContent, 8000, lang);
+
+      const agentFollowUpPrompt = `[HỆ THỐNG AGENT: ĐÃ TỰ ĐỘNG ĐỌC TỆP ${cleanPath}]\n\`\`\`${lang}\n${compressed}\n\`\`\`\nHãy tiếp tục phân tích kỹ lưỡng nội dung tệp này, kiểm tra tính ổn định, tìm lỗi hoặc đề xuất bản sửa lỗi hoàn chỉnh cho tôi.`;
+
+      await this.handleUserPrompt(agentFollowUpPrompt, 'chat', true);
+    } catch (err: any) {
+      vscode.window.showErrorMessage(`[NesCode] Không thể đọc tệp ${cleanPath}: ${err?.message || err}`);
     }
   }
 

@@ -48,3 +48,4 @@ test('Path Traversal Protection - Sanitizes valid relative paths cleanly', () =>
   assert.equal(sanitizeRelativePath('find_primes.py'), 'find_primes.py');
   assert.equal(sanitizeRelativePath('journal/tasks/TASK_BOARD.md'), 'journal/tasks/TASK_BOARD.md');
 });
+

@@ -133,13 +133,14 @@ function renderMarkdown(rawText) {
     const cleanDesc = desc ? desc.trim() : '';
     return '<div class="action-card file-action">' +
       '<div class="action-card-header">' +
-        '<div class="action-card-title">📖 Tệp Dự Án Cần Xem</div>' +
+        '<div class="action-card-title">📖 Tệp Dự Án Cần Khảo Sát</div>' +
         '<div class="action-card-path">' + cleanFilePath + '</div>' +
       '</div>' +
       (cleanDesc ? '<div class="action-card-desc">' + cleanDesc + '</div>' : '') +
       '<div class="action-card-footer">' +
         '<button class="action-btn dismiss-btn" onclick="dismissActionCard(this)">✕ Bỏ qua</button>' +
-        '<button class="action-btn open-btn" onclick="openFileAction(\'' + encodeURIComponent(cleanFilePath) + '\')">👁 Mở Tệp Này</button>' +
+        '<button class="action-btn open-btn" onclick="openFileAction(\'' + encodeURIComponent(cleanFilePath) + '\')">👁 Mở File</button>' +
+        '<button class="action-btn apply-btn" onclick="readAndFeedAction(\'' + encodeURIComponent(cleanFilePath) + '\')">⚡ Tự Động Đọc & Phân Tích</button>' +
       '</div>' +
     '</div>';
   });
@@ -220,6 +221,14 @@ window.openFileAction = function(encodedPath) {
   const filePath = decodeURIComponent(encodedPath);
   vscode.postMessage({
     type: 'OPEN_FILE',
+    path: filePath
+  });
+};
+
+window.readAndFeedAction = function(encodedPath) {
+  const filePath = decodeURIComponent(encodedPath);
+  vscode.postMessage({
+    type: 'READ_AND_FEED_FILE',
     path: filePath
   });
 };

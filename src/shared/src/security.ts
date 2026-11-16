@@ -69,3 +69,4 @@ export function sanitizeRelativePath(rawPath: string): string | null {
 
   return normalized;
 }
+

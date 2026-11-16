@@ -76,3 +76,4 @@ npm test
   assert.equal(writeFiles[0].path, 'config.json');
   assert.equal(runCommands[0].command, 'npm test');
 });
+
