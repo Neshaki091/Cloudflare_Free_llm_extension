@@ -35,6 +35,20 @@ export function buildServerSideSystemPrompt(mode: ChatMode): string {
   ].join('\n');
 
   switch (mode) {
+    case 'plan':
+      return [
+        agentPhilosophy,
+        '\nCHẾ ĐỘ: LẬP KẾ HOẠCH KIẾN TRÚC (/PLAN)',
+        'Khảo sát toàn diện yêu cầu và cấu trúc dự án. Hãy trình bày bản kế hoạch thực thi rõ ràng theo từng bước, xác định các file cần can thiệp, phân tích rủi ro và chiến lược kiểm thử. KHÔNG tự ý xuất khối <action type="write_file"> trừ khi người dùng yêu cầu chuyển sang /work.'
+      ].join('\n');
+
+    case 'work':
+      return [
+        agentPhilosophy,
+        '\nCHẾ ĐỘ: THỰC THI TỰ TRỊ AGENT (/WORK)',
+        'Tập trung thực hiện mục tiêu một cách quyết liệt: chủ động đọc file qua <action type="read_file"> nếu cần logic, sau đó xuất ra khối hành động hoàn chỉnh <action type="write_file"> và <action type="run_command">.'
+      ].join('\n');
+
     case 'explain':
       return [
         agentPhilosophy,
@@ -111,6 +125,23 @@ export function buildModelMessages(
           );
         }
       }
+    }
+
+    // Chuỗi suy nghĩ của Agent ở các vòng lặp trước (Chain-of-Thought)
+    if (context.thoughtHistory && context.thoughtHistory.length > 0) {
+      const thoughtLines = context.thoughtHistory.map(
+        (t) => `[Vòng lặp ${t.step}]: ${t.thought}${t.actionTaken ? ` -> Hành động: ${t.actionTaken}` : ''}`
+      );
+      parts.push(
+        `[LỊCH SỬ SUY NGHĨ CỦA BẠN Ở CÁC VÒNG LẶP TRƯỚC (CHAIN OF THOUGHT)]\n${thoughtLines.join('\n')}\n[HẾT LỊCH SỬ SUY NGHĨ]`
+      );
+    }
+
+    // Message Context (Tóm tắt logic code rút gọn cho lượt suy nghĩ hiện tại)
+    if (context.messageContext && context.messageContext.trim()) {
+      parts.push(
+        `[MESSAGE CONTEXT - TÓM TẮT LOGIC CỐT LÕI CỦA TỆP]\n${context.messageContext}\n[HẾT MESSAGE CONTEXT]`
+      );
     }
 
     if (parts.length > 0) {

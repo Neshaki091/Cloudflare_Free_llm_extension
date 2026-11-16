@@ -666,3 +666,175 @@ textarea:focus {
   color: #81c784;
   cursor: default;
 }
+
+/* ==========================================================================
+   Token Breakdown Badge & Popover
+   ========================================================================== */
+.token-usage-badge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-color);
+  padding: 2px 7px;
+  border-radius: 12px;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 500;
+  user-select: none;
+  transition: all 0.15s ease;
+}
+
+.token-usage-badge:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--accent-color);
+}
+
+.token-mini-bar {
+  display: flex;
+  width: 36px;
+  height: 5px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.bar-seg.ctx { background: #ab47bc; } /* Tím - Context */
+.bar-seg.inp { background: #29b6f6; } /* Xanh - Input */
+.bar-seg.thk { background: #ffa726; } /* Cam - Thinking */
+.bar-seg.out { background: #66bb6a; } /* Xanh lá - Output */
+
+.token-popover {
+  position: absolute;
+  top: 38px;
+  right: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 10px 14px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  z-index: 100;
+  width: 250px;
+  font-size: 11px;
+  display: none;
+  flex-direction: column;
+  gap: 6px;
+  backdrop-filter: blur(8px);
+}
+
+.token-popover.open {
+  display: flex;
+}
+
+.popover-title {
+  font-weight: 600;
+  font-size: 12px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.popover-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: space-between;
+}
+
+.popover-row .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.popover-row .dot.ctx { background: #ab47bc; }
+.popover-row .dot.inp { background: #29b6f6; }
+.popover-row .dot.thk { background: #ffa726; }
+.popover-row .dot.out { background: #66bb6a; }
+
+.popover-divider {
+  height: 1px;
+  background: var(--border-color);
+  margin: 3px 0;
+}
+
+.popover-row.total {
+  font-weight: 600;
+  color: var(--fg);
+}
+
+/* ==========================================================================
+   Slash Commands Autocomplete Popup
+   ========================================================================== */
+.slash-popup {
+  position: absolute;
+  bottom: 85px;
+  left: 10px;
+  right: 10px;
+  background: var(--input-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.4);
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.slash-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.slash-item:hover, .slash-item.active {
+  background: var(--hover-bg);
+}
+
+.slash-cmd {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-weight: bold;
+  color: #4fc3f7;
+  font-size: 12px;
+  min-width: 55px;
+}
+
+.slash-desc {
+  font-size: 11px;
+  opacity: 0.8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ==========================================================================
+   Agent Loop Banner
+   ========================================================================== */
+.agent-loop-banner {
+  padding: 6px 12px;
+  background: linear-gradient(90deg, rgba(74, 20, 140, 0.3), rgba(0, 122, 204, 0.3));
+  border-top: 1px solid rgba(171, 71, 188, 0.4);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: #e1bee7;
+}
+
+.loop-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(225, 190, 231, 0.3);
+  border-top-color: #e1bee7;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}

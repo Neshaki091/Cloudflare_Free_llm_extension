@@ -76,3 +76,62 @@ export function compressContextFiles(
 
   return compressedFiles;
 }
+
+/**
+ * Nén Message Context (logic code tóm tắt hoặc chuỗi suy nghĩ) để không vượt quá hạn ngạch cho lượt suy nghĩ hiện tại.
+ */
+export function compressMessageContext(
+  rawLogic: string,
+  maxBudgetChars = 3500,
+  userQuery = '',
+  language = 'plaintext'
+): string {
+  if (!rawLogic) return '';
+
+  const cleaned = rawLogic
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((l) => l.trimEnd())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  if (cleaned.length <= maxBudgetChars) {
+    return cleaned;
+  }
+
+  const lines = cleaned.split('\n');
+  const queryTerms = userQuery
+    .toLowerCase()
+    .split(/[\s,.;:!?()[\]{}"'`]+/)
+    .filter((w) => w.length >= 3);
+
+  // Nếu người dùng có từ khóa cụ thể, ưu tiên giữ lại các dòng chứa từ khóa đó
+  const priorityLines: string[] = [];
+  const secondaryLines: string[] = [];
+
+  for (const line of lines) {
+    const lower = line.toLowerCase();
+    const isPriority = queryTerms.some((term) => lower.includes(term));
+    if (isPriority) {
+      priorityLines.push(line);
+    } else {
+      secondaryLines.push(line);
+    }
+  }
+
+  let result = priorityLines.join('\n');
+  if (result.length < maxBudgetChars) {
+    for (const sLine of secondaryLines) {
+      if ((result + '\n' + sLine).length > maxBudgetChars - 120) break;
+      result += '\n' + sLine;
+    }
+  } else {
+    // Nếu chỉ riêng priority lines đã dài, cắt ở ranh giới dòng gần nhất
+    const sliceIdx = result.lastIndexOf('\n', maxBudgetChars - 120);
+    result = sliceIdx > 0 ? result.slice(0, sliceIdx) : result.slice(0, maxBudgetChars - 120);
+  }
+
+  const commentPrefix = language === 'python' || language === 'shellscript' ? '#' : '//';
+  return `${result}\n\n${commentPrefix} ... [Đã nén Message Context để tối ưu hóa token cho lượt suy nghĩ tiếp theo] ...`;
+}

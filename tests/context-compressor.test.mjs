@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { compressFileContent, compressContextFiles } from '../src/extension/src/context/contextCompressor.ts';
+import { compressFileContent, compressContextFiles, compressMessageContext } from '../src/extension/src/context/contextCompressor.ts';
 
 test('Context Compressor - Collapses consecutive empty lines and strips trailing spaces', () => {
   const messyCode = `
@@ -46,4 +46,16 @@ test('Context Compressor - Distributes budget across multiple context files', ()
   }
 
   assert.ok(totalChars <= 6500, `Tổng dung lượng ${totalChars} phải xấp xỉ ngân sách 6000`);
+});
+
+test('Context Compressor - compressMessageContext prioritizes user query terms', () => {
+  const codeLines = [
+    'def irrelevant_one(): pass',
+    'def irrelevant_two(): pass',
+    'def calculate_prime(n): return True',
+    'def irrelevant_three(): pass'
+  ].join('\n');
+
+  const compressed = compressMessageContext(codeLines, 80, 'prime', 'python');
+  assert.ok(compressed.includes('calculate_prime(n)'));
 });

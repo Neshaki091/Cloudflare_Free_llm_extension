@@ -573,6 +573,40 @@ function compressContextFiles(files, totalBudgetChars = DEFAULT_TOTAL_BUDGET_CHA
   }
   return compressedFiles;
 }
+function compressMessageContext(rawLogic, maxBudgetChars = 3500, userQuery = "", language = "plaintext") {
+  if (!rawLogic) return "";
+  const cleaned = rawLogic.replace(/\r\n/g, "\n").split("\n").map((l) => l.trimEnd()).join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  if (cleaned.length <= maxBudgetChars) {
+    return cleaned;
+  }
+  const lines = cleaned.split("\n");
+  const queryTerms = userQuery.toLowerCase().split(/[\s,.;:!?()[\]{}"'`]+/).filter((w) => w.length >= 3);
+  const priorityLines = [];
+  const secondaryLines = [];
+  for (const line of lines) {
+    const lower = line.toLowerCase();
+    const isPriority = queryTerms.some((term) => lower.includes(term));
+    if (isPriority) {
+      priorityLines.push(line);
+    } else {
+      secondaryLines.push(line);
+    }
+  }
+  let result = priorityLines.join("\n");
+  if (result.length < maxBudgetChars) {
+    for (const sLine of secondaryLines) {
+      if ((result + "\n" + sLine).length > maxBudgetChars - 120) break;
+      result += "\n" + sLine;
+    }
+  } else {
+    const sliceIdx = result.lastIndexOf("\n", maxBudgetChars - 120);
+    result = sliceIdx > 0 ? result.slice(0, sliceIdx) : result.slice(0, maxBudgetChars - 120);
+  }
+  const commentPrefix = language === "python" || language === "shellscript" ? "#" : "//";
+  return `${result}
+
+${commentPrefix} ... [\u0110\xE3 n\xE9n Message Context \u0111\u1EC3 t\u1ED1i \u01B0u h\xF3a token cho l\u01B0\u1EE3t suy ngh\u0129 ti\u1EBFp theo] ...`;
+}
 
 // src/extension/src/context/workspaceContext.ts
 var isExcluded = isExcludedPath;
@@ -996,6 +1030,195 @@ async function executeTerminalCommand(commandText) {
   return true;
 }
 
+// src/extension/src/context/logicExtractor.ts
+function extractPythonLogic(content) {
+  const lines = content.replace(/\r\n/g, "\n").split("\n");
+  const resultLines = [];
+  const symbols = [];
+  let inDocstring = false;
+  let docstringQuote = "";
+  let insideFuncOrClass = false;
+  let currentIndent = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const rawLine = lines[i];
+    const trimmed = rawLine.trim();
+    if (!inDocstring && (trimmed.startsWith('"""') || trimmed.startsWith("'''"))) {
+      inDocstring = true;
+      docstringQuote = trimmed.slice(0, 3);
+      resultLines.push(rawLine);
+      if (trimmed.length > 3 && trimmed.endsWith(docstringQuote)) {
+        inDocstring = false;
+      }
+      continue;
+    }
+    if (inDocstring) {
+      resultLines.push(rawLine);
+      if (trimmed.endsWith(docstringQuote)) {
+        inDocstring = false;
+      }
+      continue;
+    }
+    if (trimmed.startsWith("import ") || trimmed.startsWith("from ")) {
+      resultLines.push(rawLine);
+      continue;
+    }
+    if (trimmed.startsWith("@")) {
+      resultLines.push(rawLine);
+      continue;
+    }
+    if (trimmed.startsWith("class ")) {
+      const match = trimmed.match(/^class\s+([A-Za-z0-9_]+)/);
+      if (match && match[1]) {
+        symbols.push(match[1]);
+      }
+      resultLines.push(rawLine);
+      continue;
+    }
+    if (trimmed.startsWith("def ") || trimmed.startsWith("async def ")) {
+      const match = trimmed.match(/^(?:async\s+)?def\s+([A-Za-z0-9_]+)/);
+      if (match && match[1]) {
+        symbols.push(match[1]);
+      }
+      resultLines.push(rawLine);
+      const nextLine = lines[i + 1]?.trim() || "";
+      if (nextLine.startsWith('"""') || nextLine.startsWith("'''")) {
+        continue;
+      } else {
+        const indentMatch = rawLine.match(/^(\s*)/);
+        const indent = (indentMatch ? indentMatch[1] : "") + "    ";
+        resultLines.push(`${indent}... # [logic th\u1EF1c thi]`);
+      }
+      continue;
+    }
+    if (trimmed.startsWith("if __name__") || trimmed.startsWith("app =") || trimmed.startsWith("router =")) {
+      resultLines.push(rawLine);
+      continue;
+    }
+  }
+  if (resultLines.length < 5 && lines.length < 50) {
+    return { outline: content, symbols };
+  }
+  return { outline: resultLines.join("\n"), symbols };
+}
+function extractTsJsLogic(content) {
+  const lines = content.replace(/\r\n/g, "\n").split("\n");
+  const resultLines = [];
+  const symbols = [];
+  for (let i = 0; i < lines.length; i++) {
+    const rawLine = lines[i];
+    const trimmed = rawLine.trim();
+    if (trimmed.startsWith("import ") || trimmed.startsWith("require(")) {
+      resultLines.push(rawLine);
+      continue;
+    }
+    if (trimmed.startsWith("export interface ") || trimmed.startsWith("interface ") || trimmed.startsWith("export type ") || trimmed.startsWith("type ") || trimmed.startsWith("export enum ") || trimmed.startsWith("enum ")) {
+      resultLines.push(rawLine);
+      const match = trimmed.match(/(?:interface|type|enum)\s+([A-Za-z0-9_]+)/);
+      if (match && match[1]) symbols.push(match[1]);
+      continue;
+    }
+    if (trimmed.startsWith("export class ") || trimmed.startsWith("class ") || trimmed.startsWith("export abstract class ")) {
+      resultLines.push(rawLine);
+      const match = trimmed.match(/class\s+([A-Za-z0-9_]+)/);
+      if (match && match[1]) symbols.push(match[1]);
+      continue;
+    }
+    if (trimmed.match(/^(?:export\s+)?(?:async\s+)?function\s+([A-Za-z0-9_]+)/) || trimmed.match(/^(?:export\s+)?(?:const|let)\s+([A-Za-z0-9_]+)\s*=\s*(?:async\s*)?\(/)) {
+      resultLines.push(rawLine);
+      const match = trimmed.match(/(?:function|(?:const|let))\s+([A-Za-z0-9_]+)/);
+      if (match && match[1]) symbols.push(match[1]);
+      const indentMatch = rawLine.match(/^(\s*)/);
+      const indent = (indentMatch ? indentMatch[1] : "") + "  ";
+      resultLines.push(`${indent}// ... [logic th\u1EF1c thi]`);
+      continue;
+    }
+    if (trimmed.match(/^(?:public|private|protected|async|static|\*)\s+([A-Za-z0-9_]+)\s*\(/)) {
+      resultLines.push(rawLine);
+      const match = trimmed.match(/([A-Za-z0-9_]+)\s*\(/);
+      if (match && match[1]) symbols.push(match[1]);
+      continue;
+    }
+  }
+  if (resultLines.length < 5 && lines.length < 50) {
+    return { outline: content, symbols };
+  }
+  return { outline: resultLines.join("\n"), symbols };
+}
+function extractCodeLogic(filePath, content, language) {
+  const normalizedLang = language.toLowerCase();
+  const totalOriginalLines = content.split(/\r?\n/).length;
+  let extracted;
+  if (normalizedLang === "python" || filePath.endsWith(".py")) {
+    extracted = extractPythonLogic(content);
+  } else if (["typescript", "javascript", "typescriptreact", "javascriptreact"].includes(normalizedLang) || filePath.match(/\.(?:ts|js|tsx|jsx|mjs|cjs)$/)) {
+    extracted = extractTsJsLogic(content);
+  } else {
+    const cleaned = content.replace(/\n{3,}/g, "\n\n").trim();
+    extracted = { outline: cleaned, symbols: [] };
+  }
+  const extractedLines = extracted.outline.split("\n").length;
+  return {
+    path: filePath,
+    language,
+    logicOutline: extracted.outline,
+    symbolNames: extracted.symbols,
+    totalOriginalLines,
+    extractedLines
+  };
+}
+
+// src/extension/src/context/tokenEstimator.ts
+function estimateTokens(text) {
+  if (!text) return 0;
+  const vietnameseRegex = /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/gi;
+  const vnMatches = text.match(vietnameseRegex);
+  const vnCharCount = vnMatches ? vnMatches.length : 0;
+  const otherCharCount = text.length - vnCharCount;
+  const estimated = Math.ceil(vnCharCount / 2.5 + otherCharCount / 3.8);
+  return Math.max(1, estimated);
+}
+function calculateTokenBreakdown(contextText, inputText, assistantContent, maxContextTokens = 32768) {
+  const contextTokens = estimateTokens(contextText);
+  const inputTokens = estimateTokens(inputText);
+  let thinkingText = "";
+  let outputText = assistantContent;
+  const thinkMatch = assistantContent.match(/<(?:think|thought)>([\s\S]*?)<\/(?:think|thought)>/i);
+  if (thinkMatch && thinkMatch[1]) {
+    thinkingText = thinkMatch[1];
+    outputText = assistantContent.replace(/<(?:think|thought)>[\s\S]*?<\/(?:think|thought)>/gi, "").trim();
+  } else {
+    const thinkStreamMatch = assistantContent.match(/<(?:think|thought)>([\s\S]*)$/i);
+    if (thinkStreamMatch && thinkStreamMatch[1]) {
+      thinkingText = thinkStreamMatch[1];
+      outputText = assistantContent.replace(/<(?:think|thought)>[\s\S]*$/gi, "").trim();
+    }
+  }
+  const thinkingTokens = estimateTokens(thinkingText);
+  const outputTokens = estimateTokens(outputText);
+  const totalTokens = contextTokens + inputTokens + thinkingTokens + outputTokens;
+  const usagePercentage = Math.min(100, Number((totalTokens / maxContextTokens * 100).toFixed(1)));
+  const safeTotal = Math.max(1, totalTokens);
+  const contextPercent = Math.round(contextTokens / safeTotal * 100);
+  const inputPercent = Math.round(inputTokens / safeTotal * 100);
+  const thinkingPercent = Math.round(thinkingTokens / safeTotal * 100);
+  const outputPercent = Math.max(0, 100 - contextPercent - inputPercent - thinkingPercent);
+  return {
+    contextTokens,
+    inputTokens,
+    thinkingTokens,
+    outputTokens,
+    totalTokens,
+    maxContextTokens,
+    usagePercentage,
+    details: {
+      contextPercent,
+      inputPercent,
+      thinkingPercent,
+      outputPercent
+    }
+  };
+}
+
 // src/extension/src/providers/ChatViewProvider.ts
 var ChatViewProvider = class {
   constructor(extensionUri, client, sessionManager) {
@@ -1194,16 +1417,61 @@ var ChatViewProvider = class {
     }
     await this.handleUserPrompt(prompt, mode, true);
   }
-  async handleUserPrompt(promptText, mode = "chat", attachContext = true) {
+  async handleUserPrompt(promptText, mode = "chat", attachContext = true, loopOptions) {
     const cleanPrompt = promptText.trim();
     if (!cleanPrompt) return;
     if (!this.currentSession) {
       this.currentSession = await this.sessionManager.getOrCreateActiveSession();
     }
+    if (cleanPrompt.startsWith("/clear")) {
+      await this.sessionManager.createSession("\u0110o\u1EA1n chat m\u1EDBi");
+      await this.syncSessionStateToWebview();
+      return;
+    }
+    if (cleanPrompt.startsWith("/help")) {
+      const helpMsg = {
+        id: "msg-" + Date.now(),
+        role: "assistant",
+        content: `### \u{1F4A1} Danh S\xE1ch L\u1EC7nh Nhanh (Slash Commands)
+
+- \`/plan <y\xEAu c\u1EA7u>\`: Ph\xE2n t\xEDch ki\u1EBFn tr\xFAc & l\u1EADp k\u1EBF ho\u1EA1ch gi\u1EA3i ph\xE1p chi ti\u1EBFt.
+- \`/work <nhi\u1EC7m v\u1EE5>\`: Ch\u1EBF \u0111\u1ED9 Agent Loop t\u1EF1 tr\u1ECB \u2014 t\u1EF1 \u0111\u1ED9ng \u0111\u1ECDc code, tr\xEDch xu\u1EA5t logic v\xE0o Message Context v\xE0 \u0111\u1EC1 xu\u1EA5t code.
+- \`/fix <v\u1EA5n \u0111\u1EC1>\`: Ch\u1EBF \u0111\u1ED9 t\xECm l\u1ED7i & s\u1EEDa m\xE3 ngu\u1ED3n.
+- \`/test <h\xE0m/file>\`: Ch\u1EBF \u0111\u1ED9 vi\u1EBFt ki\u1EC3m th\u1EED t\u1EF1 \u0111\u1ED9ng.
+- \`/clear\`: X\xF3a ng\u1EEF c\u1EA3nh v\xE0 t\u1EA1o phi\xEAn l\xE0m vi\u1EC7c m\u1EDBi.
+- \`/help\`: Hi\u1EC3n th\u1ECB b\u1EA3ng tr\u1EE3 gi\xFAp n\xE0y.`,
+        timestamp: (/* @__PURE__ */ new Date()).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })
+      };
+      this.currentSession.messages.push(helpMsg);
+      await this.sessionManager.updateSessionMessages(this.currentSession.id, this.currentSession.messages);
+      this.view?.webview.postMessage({
+        type: "USER_MESSAGE_ADDED",
+        message: { id: "usr-" + Date.now(), role: "user", content: cleanPrompt, timestamp: helpMsg.timestamp },
+        sessionTitle: this.currentSession.title
+      });
+      this.view?.webview.postMessage({ type: "ASSISTANT_STREAM_START", message: helpMsg });
+      this.view?.webview.postMessage({ type: "STREAM_COMPLETED", messageId: helpMsg.id, fullContent: helpMsg.content });
+      return;
+    }
+    let actualMode = mode;
+    let actualPromptText = cleanPrompt;
+    if (cleanPrompt.startsWith("/plan")) {
+      actualMode = "plan";
+      actualPromptText = cleanPrompt.replace(/^\/plan\s*/i, "") || "H\xE3y l\u1EADp k\u1EBF ho\u1EA1ch ki\u1EBFn tr\xFAc chi ti\u1EBFt cho d\u1EF1 \xE1n.";
+    } else if (cleanPrompt.startsWith("/work") || cleanPrompt.startsWith("/act")) {
+      actualMode = "work";
+      actualPromptText = cleanPrompt.replace(/^\/(?:work|act)\s*/i, "") || "H\xE3y th\u1EF1c thi nhi\u1EC7m v\u1EE5 theo ch\u1EBF \u0111\u1ED9 t\u1EF1 tr\u1ECB Agent.";
+    } else if (cleanPrompt.startsWith("/fix")) {
+      actualMode = "fix";
+      actualPromptText = cleanPrompt.replace(/^\/fix\s*/i, "") || "H\xE3y t\xECm v\xE0 s\u1EEDa l\u1ED7i trong m\xE3 ngu\u1ED3n.";
+    } else if (cleanPrompt.startsWith("/test")) {
+      actualMode = "generate_tests";
+      actualPromptText = cleanPrompt.replace(/^\/test\s*/i, "") || "H\xE3y vi\u1EBFt b\u1ED9 ki\u1EC3m th\u1EED t\u1EF1 \u0111\u1ED9ng.";
+    }
     let contextData;
+    const rootInfo = await findProjectRootUri();
     if (attachContext) {
       contextData = {};
-      const rootInfo = await findProjectRootUri();
       const wsSummary = await getWorkspaceSummary();
       if (wsSummary) {
         contextData.workspaceTree = `D\u1EF1 \xE1n: ${wsSummary.rootName} (${wsSummary.fileCount} files)
@@ -1212,7 +1480,7 @@ ${wsSummary.fileTree}`;
       }
       const editor = vscode4.window.activeTextEditor;
       if (rootInfo) {
-        const autoFiles = await collectProjectContextFiles(rootInfo.uri, cleanPrompt, editor?.document);
+        const autoFiles = await collectProjectContextFiles(rootInfo.uri, actualPromptText, editor?.document);
         if (autoFiles.length > 0) {
           contextData.files = autoFiles;
         }
@@ -1230,23 +1498,34 @@ ${wsSummary.fileTree}`;
         }
       }
     }
-    const userMsgId = "msg-" + Date.now();
-    const userMsg = {
-      id: userMsgId,
-      role: "user",
-      content: cleanPrompt,
-      timestamp: (/* @__PURE__ */ new Date()).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })
-    };
-    this.currentSession.messages.push(userMsg);
-    await this.sessionManager.updateSessionMessages(
-      this.currentSession.id,
-      this.currentSession.messages
-    );
-    this.view?.webview.postMessage({
-      type: "USER_MESSAGE_ADDED",
-      message: userMsg,
-      sessionTitle: this.currentSession.title
-    });
+    if (loopOptions?.messageContext) {
+      if (!contextData) contextData = {};
+      contextData.messageContext = loopOptions.messageContext;
+    }
+    if (loopOptions?.thoughtHistory && loopOptions.thoughtHistory.length > 0) {
+      if (!contextData) contextData = {};
+      contextData.thoughtHistory = loopOptions.thoughtHistory;
+    }
+    const currentStep = loopOptions?.step || 0;
+    if (currentStep === 0) {
+      const userMsgId = "msg-" + Date.now();
+      const userMsg = {
+        id: userMsgId,
+        role: "user",
+        content: cleanPrompt,
+        timestamp: (/* @__PURE__ */ new Date()).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })
+      };
+      this.currentSession.messages.push(userMsg);
+      await this.sessionManager.updateSessionMessages(
+        this.currentSession.id,
+        this.currentSession.messages
+      );
+      this.view?.webview.postMessage({
+        type: "USER_MESSAGE_ADDED",
+        message: userMsg,
+        sessionTitle: this.currentSession.title
+      });
+    }
     const assistantMsgId = "msg-" + (Date.now() + 1);
     const assistantMsg = {
       id: assistantMsgId,
@@ -1262,7 +1541,7 @@ ${wsSummary.fileTree}`;
     this.currentAbortController = new AbortController();
     const chatRequest = {
       requestId: crypto.randomUUID(),
-      mode,
+      mode: actualMode,
       messages: this.currentSession.messages.slice(0, -1).map((m) => ({
         role: m.role,
         content: m.content
@@ -1284,6 +1563,13 @@ ${wsSummary.fileTree}`;
               messageId: assistantMsgId,
               delta: delta.text,
               fullContent: assistantMsg.content
+            });
+            const contextStr = JSON.stringify(contextData || "");
+            const inputStr = actualPromptText;
+            const tokenBreakdown = calculateTokenBreakdown(contextStr, inputStr, assistantMsg.content, 32768);
+            this.view?.webview.postMessage({
+              type: "UPDATE_TOKEN_USAGE",
+              tokenBreakdown
             });
             const now = Date.now();
             if (now - lastSaveTime > 1200) {
@@ -1324,6 +1610,13 @@ ${wsSummary.fileTree}`;
                 fullContent: assistantMsg.content
               });
             }
+            const contextStr = JSON.stringify(contextData || "");
+            const inputStr = actualPromptText;
+            const finalBreakdown = calculateTokenBreakdown(contextStr, inputStr, assistantMsg.content, 32768);
+            this.view?.webview.postMessage({
+              type: "UPDATE_TOKEN_USAGE",
+              tokenBreakdown: finalBreakdown
+            });
             this.view?.webview.postMessage({
               type: "STREAM_COMPLETED",
               messageId: assistantMsgId,
@@ -1336,6 +1629,60 @@ ${wsSummary.fileTree}`;
                 this.currentSession.messages
               );
               await this.syncSessionStateToWebview();
+            }
+            const MAX_AGENT_LOOP_STEPS = 3;
+            const readFileMatch = assistantMsg.content.match(/<action\s+type="read_file"\s+path="([^"]+)"(?:\s+purpose="([^"]*)")?>/i);
+            if (readFileMatch && currentStep < MAX_AGENT_LOOP_STEPS && rootInfo) {
+              const rawPath = readFileMatch[1];
+              const cleanPath = sanitizeRelativePath(rawPath);
+              if (cleanPath) {
+                try {
+                  const fileUri = vscode4.Uri.joinPath(rootInfo.uri, cleanPath);
+                  const bytes = await vscode4.workspace.fs.readFile(fileUri);
+                  const rawContent = new TextDecoder("utf-8").decode(bytes);
+                  const lang = cleanPath.split(".").pop() || "plaintext";
+                  const logicResult = extractCodeLogic(cleanPath, rawContent, lang);
+                  const compressedLogic = compressMessageContext(logicResult.logicOutline, 3500, actualPromptText, lang);
+                  let currentThought = "C\u1EA7n kh\u1EA3o s\xE1t c\u1EA5u tr\xFAc logic c\u1EE7a " + cleanPath;
+                  const thinkMatch = assistantMsg.content.match(/<(?:think|thought)>([\s\S]*?)<\/(?:think|thought)>/i);
+                  if (thinkMatch && thinkMatch[1]) {
+                    currentThought = thinkMatch[1].trim().slice(0, 600);
+                  }
+                  const newThoughtHistory = [
+                    ...loopOptions?.thoughtHistory || [],
+                    {
+                      step: currentStep + 1,
+                      thought: currentThought,
+                      actionTaken: `read_file(${cleanPath})`,
+                      logicSummary: `\u0110\xE3 tr\xEDch xu\u1EA5t ${logicResult.symbolNames.length} h\xE0m/l\u1EDBp (${logicResult.symbolNames.slice(0, 6).join(", ")})`
+                    }
+                  ];
+                  this.view?.webview.postMessage({
+                    type: "AGENT_LOOP_STATUS",
+                    step: currentStep + 1,
+                    maxSteps: MAX_AGENT_LOOP_STEPS,
+                    file: cleanPath,
+                    message: `\u{1F504} [Agent Loop: V\xF2ng ${currentStep + 1}/${MAX_AGENT_LOOP_STEPS}] \u0110\xE3 b\xF3c t\xE1ch logic c\u1EE7a ${cleanPath}, \u0111ang suy ngh\u0129 ti\u1EBFp...`
+                  });
+                  const nextMessageContext = `--- LOGIC OUTLINE T\u1EC6P: ${cleanPath} (Ng\xF4n ng\u1EEF: ${lang}, g\u1ED3m c\xE1c h\xE0m/l\u1EDBp: ${logicResult.symbolNames.join(", ")}) ---
+${compressedLogic}`;
+                  setTimeout(() => {
+                    this.handleUserPrompt(
+                      actualPromptText,
+                      actualMode,
+                      attachContext,
+                      {
+                        step: currentStep + 1,
+                        thoughtHistory: newThoughtHistory,
+                        messageContext: nextMessageContext
+                      }
+                    ).catch((e) => console.error("L\u1ED7i th\u1EF1c thi Agent Loop:", e));
+                  }, 400);
+                  return;
+                } catch (readErr) {
+                  console.warn(`[NesCode] Kh\xF4ng th\u1EC3 \u0111\u1ECDc t\u1EC7p ${cleanPath} trong Agent Loop:`, readErr);
+                }
+              }
             }
           }
         },
@@ -1414,6 +1761,16 @@ H\xE3y ti\u1EBFp t\u1EE5c ph\xE2n t\xEDch k\u1EF9 l\u01B0\u1EE1ng n\u1ED9i dung 
       <span id="currentSessionTitle">\u0110o\u1EA1n chat m\u1EDBi</span>
       <span style="font-size: 9px; opacity: 0.6;">\u25BC</span>
     </div>
+    <div class="token-usage-badge" id="tokenUsageBadge" title="B\u1EA5m \u0111\u1EC3 xem ph\xE2n b\u1ED5 Token chi ti\u1EBFt">
+      <span class="token-icon">\u{1F4CA}</span>
+      <span id="tokenUsageText">0 / 32k</span>
+      <div class="token-mini-bar" id="tokenMiniBar">
+        <div class="bar-seg ctx" id="segCtx" style="width: 0%"></div>
+        <div class="bar-seg inp" id="segInp" style="width: 0%"></div>
+        <div class="bar-seg thk" id="segThk" style="width: 0%"></div>
+        <div class="bar-seg out" id="segOut" style="width: 0%"></div>
+      </div>
+    </div>
     <div class="header-actions">
       <button class="icon-btn" id="btnNewSession" title="T\u1EA1o \u0111o\u1EA1n chat m\u1EDBi trong d\u1EF1 \xE1n (+)">\u2795</button>
       <button class="icon-btn" id="btnHistory" title="L\u1ECBch s\u1EED c\xE1c phi\xEAn chat (D\u1EF1 \xE1n n\xE0y)">\u{1F4DC}</button>
@@ -1421,6 +1778,17 @@ H\xE3y ti\u1EBFp t\u1EE5c ph\xE2n t\xEDch k\u1EF9 l\u01B0\u1EE1ng n\u1ED9i dung 
       <button class="icon-btn close-btn" id="btnCloseSidebar" title="\u0110\xF3ng b\u1EA3ng chat (\u2715)">\u2715</button>
     </div>
   </header>
+
+  <!-- Popover chi ti\u1EBFt Token Breakdown -->
+  <div class="token-popover" id="tokenPopover">
+    <div class="popover-title">\u{1F4CA} Ph\xE2n B\u1ED5 S\u1EED D\u1EE5ng Token</div>
+    <div class="popover-row"><span class="dot ctx"></span> Context d\u1EF1 \xE1n: <strong id="tokCtx">0 (0%)</strong></div>
+    <div class="popover-row"><span class="dot inp"></span> L\u1EDDi nh\u1EAFc & L\u1ECBch s\u1EED: <strong id="tokInp">0 (0%)</strong></div>
+    <div class="popover-row"><span class="dot thk"></span> Suy ngh\u0129 (Thinking): <strong id="tokThk">0 (0%)</strong></div>
+    <div class="popover-row"><span class="dot out"></span> Ph\u1EA3n h\u1ED3i (Output): <strong id="tokOut">0 (0%)</strong></div>
+    <div class="popover-divider"></div>
+    <div class="popover-row total">T\u1ED5ng dung l\u01B0\u1EE3ng: <strong id="tokTotal">0 / 32.768 (0%)</strong></div>
+  </div>
 
   <!-- Drawer danh s\xE1ch sessions trong d\u1EF1 \xE1n -->
   <div id="historyDrawer">
@@ -1443,7 +1811,41 @@ H\xE3y ti\u1EBFp t\u1EE5c ph\xE2n t\xEDch k\u1EF9 l\u01B0\u1EE1ng n\u1ED9i dung 
     </div>
   </div>
 
+  <!-- Banner tr\u1EA1ng th\xE1i Agent Loop -->
+  <div class="agent-loop-banner" id="agentLoopBanner" style="display: none;">
+    <span class="loop-spinner"></span>
+    <span id="agentLoopText">\u0110ang ph\xE2n t\xEDch logic...</span>
+  </div>
+
   <footer>
+    <!-- Autocomplete Popup cho Slash Commands -->
+    <div class="slash-popup" id="slashPopup" style="display: none;">
+      <div class="slash-item active" data-cmd="/plan">
+        <span class="slash-cmd">/plan</span>
+        <span class="slash-desc">L\u1EADp k\u1EBF ho\u1EA1ch ki\u1EBFn tr\xFAc & kh\u1EA3o s\xE1t logic d\u1EF1 \xE1n</span>
+      </div>
+      <div class="slash-item" data-cmd="/work">
+        <span class="slash-cmd">/work</span>
+        <span class="slash-desc">Ch\u1EBF \u0111\u1ED9 Agent Loop t\u1EF1 tr\u1ECB (Auto Read & Write Code)</span>
+      </div>
+      <div class="slash-item" data-cmd="/fix">
+        <span class="slash-cmd">/fix</span>
+        <span class="slash-desc">T\xECm & s\u1EEDa l\u1ED7i m\xE3 ngu\u1ED3n qua Diff Preview</span>
+      </div>
+      <div class="slash-item" data-cmd="/test">
+        <span class="slash-cmd">/test</span>
+        <span class="slash-desc">Vi\u1EBFt b\u1ED9 ki\u1EC3m th\u1EED t\u1EF1 \u0111\u1ED9ng to\xE0n di\u1EC7n</span>
+      </div>
+      <div class="slash-item" data-cmd="/clear">
+        <span class="slash-cmd">/clear</span>
+        <span class="slash-desc">L\xE0m m\u1EDBi phi\xEAn tr\xF2 chuy\u1EC7n (New Session)</span>
+      </div>
+      <div class="slash-item" data-cmd="/help">
+        <span class="slash-cmd">/help</span>
+        <span class="slash-desc">H\u01B0\u1EDBng d\u1EABn s\u1EED d\u1EE5ng c\xE1c l\u1EC7nh</span>
+      </div>
+    </div>
+
     <div class="context-bar" id="contextBar">
       <div class="context-chip-wrap">
         <span id="contextInfo">\u{1F4CE} Kh\xF4ng c\xF3 file \u0111ang m\u1EDF</span>

@@ -2,7 +2,7 @@ import { ErrorCode, ErrorDetail } from './error-codes.js';
 
 export type Role = 'user' | 'assistant';
 
-export type ChatMode = 'chat' | 'explain' | 'fix' | 'generate_tests';
+export type ChatMode = 'chat' | 'explain' | 'fix' | 'generate_tests' | 'plan' | 'work';
 
 export interface ChatMessage {
   role: Role;
@@ -21,10 +21,19 @@ export interface ContextFile {
   content: string;
 }
 
+export interface AgentThoughtStep {
+  step: number;
+  thought: string;
+  actionTaken?: string;
+  logicSummary?: string;
+}
+
 export interface RequestContext {
   selection?: ContextSelection;
   files?: ContextFile[];
   workspaceTree?: string;
+  messageContext?: string;
+  thoughtHistory?: AgentThoughtStep[];
 }
 
 export interface ChatOptions {
@@ -46,6 +55,22 @@ export interface UsageInfo {
   inputTokens: number | null;
   outputTokens: number | null;
   neurons: number | null;
+}
+
+export interface TokenBreakdown {
+  contextTokens: number;
+  inputTokens: number;
+  thinkingTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  maxContextTokens: number;
+  usagePercentage: number;
+  details: {
+    contextPercent: number;
+    inputPercent: number;
+    thinkingPercent: number;
+    outputPercent: number;
+  };
 }
 
 export interface ChatTiming {

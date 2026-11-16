@@ -20,6 +20,24 @@ const currentSessionTitle = document.getElementById('currentSessionTitle');
 const historyDrawer = document.getElementById('historyDrawer');
 const sessionList = document.getElementById('sessionList');
 
+// Token breakdown & Agent elements
+const tokenUsageBadge = document.getElementById('tokenUsageBadge');
+const tokenUsageText = document.getElementById('tokenUsageText');
+const segCtx = document.getElementById('segCtx');
+const segInp = document.getElementById('segInp');
+const segThk = document.getElementById('segThk');
+const segOut = document.getElementById('segOut');
+const tokenPopover = document.getElementById('tokenPopover');
+const tokCtx = document.getElementById('tokCtx');
+const tokInp = document.getElementById('tokInp');
+const tokThk = document.getElementById('tokThk');
+const tokOut = document.getElementById('tokOut');
+const tokTotal = document.getElementById('tokTotal');
+
+const slashPopup = document.getElementById('slashPopup');
+const agentLoopBanner = document.getElementById('agentLoopBanner');
+const agentLoopText = document.getElementById('agentLoopText');
+
 let isStreaming = false;
 let activeSessionId = '';
 window.__actionStore = window.__actionStore || {};
@@ -390,8 +408,30 @@ if (btnRemoveContext) {
   });
 }
 
-// Bấm ra ngoài drawer để tự động đóng lại
+// Token Popover toggle
+if (tokenUsageBadge) {
+  tokenUsageBadge.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (tokenPopover) {
+      tokenPopover.classList.toggle('open');
+    }
+  });
+}
+
+// Bấm ra ngoài drawer và popover để tự động đóng lại
 document.addEventListener('click', (e) => {
+  if (tokenPopover && tokenPopover.classList.contains('open')) {
+    if (!tokenPopover.contains(e.target) && !tokenUsageBadge.contains(e.target)) {
+      tokenPopover.classList.remove('open');
+    }
+  }
+
+  if (slashPopup && slashPopup.style.display !== 'none') {
+    if (!slashPopup.contains(e.target) && e.target !== promptInput) {
+      slashPopup.style.display = 'none';
+    }
+  }
+
   if (historyDrawer && historyDrawer.classList.contains('open')) {
     if (
       !historyDrawer.contains(e.target) &&
@@ -403,9 +443,101 @@ document.addEventListener('click', (e) => {
   }
 });
 
+// Xử lý Autocomplete Slash Commands (/plan, /work, /fix, /test, /clear, /help)
+promptInput.addEventListener('input', () => {
+  updateState({ draftPrompt: promptInput.value });
+  checkSlashCommands();
+});
+
+function checkSlashCommands() {
+  if (!slashPopup) return;
+  const val = promptInput.value;
+  if (val.startsWith('/')) {
+    const query = val.toLowerCase().trim();
+    const items = slashPopup.querySelectorAll('.slash-item');
+    let hasVisible = false;
+
+    items.forEach((item, index) => {
+      const cmd = item.getAttribute('data-cmd') || '';
+      if (cmd.startsWith(query) || query === '/') {
+        item.style.display = 'flex';
+        hasVisible = true;
+      } else {
+        item.style.display = 'none';
+      }
+    });
+
+    if (hasVisible) {
+      slashPopup.style.display = 'flex';
+      // Đảm bảo có ít nhất 1 item được highlight
+      const visibleItems = Array.from(items).filter((it) => it.style.display !== 'none');
+      items.forEach((it) => it.classList.remove('active'));
+      if (visibleItems.length > 0) {
+        visibleItems[0].classList.add('active');
+      }
+    } else {
+      slashPopup.style.display = 'none';
+    }
+  } else {
+    slashPopup.style.display = 'none';
+  }
+}
+
+function selectSlashCommand(cmd) {
+  promptInput.value = cmd + ' ';
+  promptInput.focus();
+  if (slashPopup) slashPopup.style.display = 'none';
+  updateState({ draftPrompt: promptInput.value });
+}
+
+if (slashPopup) {
+  slashPopup.querySelectorAll('.slash-item').forEach((item) => {
+    item.addEventListener('click', () => {
+      const cmd = item.getAttribute('data-cmd');
+      if (cmd) selectSlashCommand(cmd);
+    });
+  });
+}
+
 promptInput.addEventListener('keydown', (e) => {
+  if (slashPopup && slashPopup.style.display !== 'none') {
+    const visibleItems = Array.from(slashPopup.querySelectorAll('.slash-item')).filter(
+      (it) => it.style.display !== 'none'
+    );
+    const activeIndex = visibleItems.findIndex((it) => it.classList.contains('active'));
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      const nextIndex = (activeIndex + 1) % visibleItems.length;
+      visibleItems.forEach((it) => it.classList.remove('active'));
+      visibleItems[nextIndex]?.classList.add('active');
+      return;
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      const prevIndex = (activeIndex - 1 + visibleItems.length) % visibleItems.length;
+      visibleItems.forEach((it) => it.classList.remove('active'));
+      visibleItems[prevIndex]?.classList.add('active');
+      return;
+    }
+    if (e.key === 'Tab' || (e.key === 'Enter' && activeIndex >= 0 && promptInput.value.trim() === promptInput.value)) {
+      const activeItem = visibleItems[activeIndex];
+      const cmd = activeItem?.getAttribute('data-cmd');
+      if (cmd && !promptInput.value.includes(' ')) {
+        e.preventDefault();
+        selectSlashCommand(cmd);
+        return;
+      }
+    }
+    if (e.key === 'Escape') {
+      slashPopup.style.display = 'none';
+      return;
+    }
+  }
+
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
+    if (slashPopup) slashPopup.style.display = 'none';
     sendPrompt();
   }
 });
@@ -474,6 +606,7 @@ window.addEventListener('message', (event) => {
     case 'STREAM_COMPLETED':
     case 'STREAM_ERROR': {
       setStreamingState(false);
+      if (agentLoopBanner) agentLoopBanner.style.display = 'none';
       const banner = document.getElementById('banner-' + msg.messageId);
       if (banner) {
         banner.style.display = 'none';
@@ -483,6 +616,35 @@ window.addEventListener('message', (event) => {
         contentBox.innerHTML = renderMarkdown(msg.fullContent);
         transcript.scrollTop = transcript.scrollHeight;
       }
+      break;
+    }
+
+    case 'AGENT_LOOP_STATUS': {
+      if (agentLoopBanner && agentLoopText) {
+        agentLoopBanner.style.display = 'flex';
+        agentLoopText.textContent = msg.message || 'Agent đang phân tích logic...';
+        transcript.scrollTop = transcript.scrollHeight;
+      }
+      break;
+    }
+
+    case 'UPDATE_TOKEN_USAGE': {
+      const tb = msg.tokenBreakdown;
+      if (!tb) break;
+
+      if (tokenUsageText) {
+        tokenUsageText.textContent = `${tb.totalTokens.toLocaleString()} / 32k (${tb.usagePercentage}%)`;
+      }
+      if (segCtx) segCtx.style.width = tb.details.contextPercent + '%';
+      if (segInp) segInp.style.width = tb.details.inputPercent + '%';
+      if (segThk) segThk.style.width = tb.details.thinkingPercent + '%';
+      if (segOut) segOut.style.width = tb.details.outputPercent + '%';
+
+      if (tokCtx) tokCtx.textContent = `${tb.contextTokens.toLocaleString()} (${tb.details.contextPercent}%)`;
+      if (tokInp) tokInp.textContent = `${tb.inputTokens.toLocaleString()} (${tb.details.inputPercent}%)`;
+      if (tokThk) tokThk.textContent = `${tb.thinkingTokens.toLocaleString()} (${tb.details.thinkingPercent}%)`;
+      if (tokOut) tokOut.textContent = `${tb.outputTokens.toLocaleString()} (${tb.details.outputPercent}%)`;
+      if (tokTotal) tokTotal.textContent = `${tb.totalTokens.toLocaleString()} / ${tb.maxContextTokens.toLocaleString()} (${tb.usagePercentage}%)`;
       break;
     }
 
