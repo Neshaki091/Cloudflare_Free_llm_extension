@@ -123,11 +123,11 @@ export interface DeltaEventData {
   text: string;
 }
 
-export interface UsageEventData extends UsageInfo {}
+export interface UsageEventData extends UsageInfo { }
 
 export interface DoneEventData {
   requestId: string;
 }
 
-export interface ErrorEventData extends ErrorDetail {}
+export interface ErrorEventData extends ErrorDetail { }
 

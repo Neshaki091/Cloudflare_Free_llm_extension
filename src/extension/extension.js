@@ -853,20 +853,52 @@ async function collectProjectContextFiles(rootUri, promptText, activeDoc) {
     } catch {
     }
   }
-  if (result.length < 3) {
-    try {
-      const commonCodeFiles = await vscode2.workspace.findFiles(
-        "**/*.{py,ts,js,tsx,jsx,go,rs}",
-        "{**/node_modules/**,**/.git/**,**/dist/**,**/build/**,**/.venv/**,**/__pycache__/**}",
-        5
-      );
-      for (const fUri of commonCodeFiles) {
-        if (result.length >= 6) break;
-        const rel = getRelativePath(rootUri, fUri);
-        await tryReadFile(rel, 4e3);
+  const importedModuleCandidates = /* @__PURE__ */ new Set();
+  for (const existingFile of result) {
+    if (existingFile.language === "python" || existingFile.path.endsWith(".py")) {
+      const pyImportRegex = /(?:from\s+([a-zA-Z0-9_.]+)\s+import\s+([a-zA-Z0-9_,\s]+)|import\s+([a-zA-Z0-9_.]+))/g;
+      let m;
+      while ((m = pyImportRegex.exec(existingFile.content)) !== null) {
+        if (m[1]) {
+          const modPath = m[1].replace(/\./g, "/");
+          importedModuleCandidates.add(`${modPath}.py`);
+          if (m[2]) {
+            const subItems = m[2].split(",").map((s) => s.trim()).filter(Boolean);
+            for (const sub of subItems) {
+              importedModuleCandidates.add(`${modPath}/${sub}.py`);
+            }
+          }
+        } else if (m[3]) {
+          const modPath = m[3].replace(/\./g, "/");
+          importedModuleCandidates.add(`${modPath}.py`);
+        }
       }
-    } catch {
+    } else if (["typescript", "javascript"].includes(existingFile.language)) {
+      const jsImportRegex = /(?:from|import)\s+['"]([.\\/a-zA-Z0-9_-]+)['"]/g;
+      let m;
+      while ((m = jsImportRegex.exec(existingFile.content)) !== null) {
+        const importPath = m[1].replace(/^\.\//, "");
+        importedModuleCandidates.add(`${importPath}.ts`);
+        importedModuleCandidates.add(`${importPath}.js`);
+      }
     }
+  }
+  for (const modCandidate of importedModuleCandidates) {
+    if (result.length >= 10) break;
+    await tryReadFile(modCandidate, 4e3);
+  }
+  try {
+    const commonCodeFiles = await vscode2.workspace.findFiles(
+      "**/*.{py,ts,js,tsx,jsx,go,rs,html,css}",
+      "{**/node_modules/**,**/.git/**,**/dist/**,**/build/**,**/.venv/**,**/venv/**,**/__pycache__/**}",
+      15
+    );
+    for (const fUri of commonCodeFiles) {
+      if (result.length >= 10) break;
+      const rel = getRelativePath(rootUri, fUri);
+      await tryReadFile(rel, 3500);
+    }
+  } catch {
   }
   if (activeDoc && activeDoc.uri.scheme === "file") {
     const activeRelPath = getRelativePath(rootUri, activeDoc.uri);
@@ -1631,57 +1663,70 @@ ${wsSummary.fileTree}`;
               await this.syncSessionStateToWebview();
             }
             const MAX_AGENT_LOOP_STEPS = 3;
-            const readFileMatch = assistantMsg.content.match(/<action\s+type="read_file"\s+path="([^"]+)"(?:\s+purpose="([^"]*)")?>/i);
-            if (readFileMatch && currentStep < MAX_AGENT_LOOP_STEPS && rootInfo) {
-              const rawPath = readFileMatch[1];
-              const cleanPath = sanitizeRelativePath(rawPath);
-              if (cleanPath) {
+            const readFileRegex = /<action\s+type="read_file"\s+path="([^"]+)"(?:\s+purpose="([^"]*)")?>/gi;
+            const matches = [];
+            let matchExec;
+            while ((matchExec = readFileRegex.exec(assistantMsg.content)) !== null) {
+              matches.push({ path: matchExec[1], purpose: matchExec[2] });
+            }
+            if (matches.length > 0 && currentStep < MAX_AGENT_LOOP_STEPS && rootInfo) {
+              const collectedOutlines = [];
+              const readPaths = [];
+              for (const m of matches) {
+                const cleanPath = sanitizeRelativePath(m.path);
+                if (!cleanPath) continue;
                 try {
                   const fileUri = vscode4.Uri.joinPath(rootInfo.uri, cleanPath);
                   const bytes = await vscode4.workspace.fs.readFile(fileUri);
                   const rawContent = new TextDecoder("utf-8").decode(bytes);
                   const lang = cleanPath.split(".").pop() || "plaintext";
                   const logicResult = extractCodeLogic(cleanPath, rawContent, lang);
-                  const compressedLogic = compressMessageContext(logicResult.logicOutline, 3500, actualPromptText, lang);
-                  let currentThought = "C\u1EA7n kh\u1EA3o s\xE1t c\u1EA5u tr\xFAc logic c\u1EE7a " + cleanPath;
-                  const thinkMatch = assistantMsg.content.match(/<(?:think|thought)>([\s\S]*?)<\/(?:think|thought)>/i);
-                  if (thinkMatch && thinkMatch[1]) {
-                    currentThought = thinkMatch[1].trim().slice(0, 600);
-                  }
-                  const newThoughtHistory = [
-                    ...loopOptions?.thoughtHistory || [],
-                    {
-                      step: currentStep + 1,
-                      thought: currentThought,
-                      actionTaken: `read_file(${cleanPath})`,
-                      logicSummary: `\u0110\xE3 tr\xEDch xu\u1EA5t ${logicResult.symbolNames.length} h\xE0m/l\u1EDBp (${logicResult.symbolNames.slice(0, 6).join(", ")})`
-                    }
-                  ];
-                  this.view?.webview.postMessage({
-                    type: "AGENT_LOOP_STATUS",
-                    step: currentStep + 1,
-                    maxSteps: MAX_AGENT_LOOP_STEPS,
-                    file: cleanPath,
-                    message: `\u{1F504} [Agent Loop: V\xF2ng ${currentStep + 1}/${MAX_AGENT_LOOP_STEPS}] \u0110\xE3 b\xF3c t\xE1ch logic c\u1EE7a ${cleanPath}, \u0111ang suy ngh\u0129 ti\u1EBFp...`
-                  });
-                  const nextMessageContext = `--- LOGIC OUTLINE T\u1EC6P: ${cleanPath} (Ng\xF4n ng\u1EEF: ${lang}, g\u1ED3m c\xE1c h\xE0m/l\u1EDBp: ${logicResult.symbolNames.join(", ")}) ---
-${compressedLogic}`;
-                  setTimeout(() => {
-                    this.handleUserPrompt(
-                      actualPromptText,
-                      actualMode,
-                      attachContext,
-                      {
-                        step: currentStep + 1,
-                        thoughtHistory: newThoughtHistory,
-                        messageContext: nextMessageContext
-                      }
-                    ).catch((e) => console.error("L\u1ED7i th\u1EF1c thi Agent Loop:", e));
-                  }, 400);
-                  return;
+                  const compressedLogic = compressMessageContext(logicResult.logicOutline, 2500, actualPromptText, lang);
+                  collectedOutlines.push(
+                    `--- LOGIC OUTLINE T\u1EC6P: ${cleanPath} (Ng\xF4n ng\u1EEF: ${lang}, g\u1ED3m c\xE1c h\xE0m/l\u1EDBp: ${logicResult.symbolNames.join(", ")}) ---
+${compressedLogic}`
+                  );
+                  readPaths.push(cleanPath);
                 } catch (readErr) {
                   console.warn(`[NesCode] Kh\xF4ng th\u1EC3 \u0111\u1ECDc t\u1EC7p ${cleanPath} trong Agent Loop:`, readErr);
                 }
+              }
+              if (collectedOutlines.length > 0) {
+                let currentThought = "C\u1EA7n kh\u1EA3o s\xE1t logic c\u1EE7a: " + readPaths.join(", ");
+                const thinkMatch = assistantMsg.content.match(/<(?:think|thought)>([\s\S]*?)<\/(?:think|thought)>/i);
+                if (thinkMatch && thinkMatch[1]) {
+                  currentThought = thinkMatch[1].trim().slice(0, 600);
+                }
+                const newThoughtHistory = [
+                  ...loopOptions?.thoughtHistory || [],
+                  {
+                    step: currentStep + 1,
+                    thought: currentThought,
+                    actionTaken: `read_files(${readPaths.join(", ")})`,
+                    logicSummary: `\u0110\xE3 n\u1EA1p logic c\u1EE7a ${readPaths.length} t\u1EC7p (${readPaths.join(", ")})`
+                  }
+                ];
+                this.view?.webview.postMessage({
+                  type: "AGENT_LOOP_STATUS",
+                  step: currentStep + 1,
+                  maxSteps: MAX_AGENT_LOOP_STEPS,
+                  file: readPaths.join(", "),
+                  message: `\u{1F504} [Agent Loop: V\xF2ng ${currentStep + 1}/${MAX_AGENT_LOOP_STEPS}] \u0110\xE3 b\xF3c t\xE1ch logic c\u1EE7a ${readPaths.join(", ")}, \u0111ang suy ngh\u0129 ti\u1EBFp...`
+                });
+                const nextMessageContext = collectedOutlines.join("\n\n");
+                setTimeout(() => {
+                  this.handleUserPrompt(
+                    actualPromptText,
+                    actualMode,
+                    attachContext,
+                    {
+                      step: currentStep + 1,
+                      thoughtHistory: newThoughtHistory,
+                      messageContext: nextMessageContext
+                    }
+                  ).catch((e) => console.error("L\u1ED7i th\u1EF1c thi Agent Loop:", e));
+                }, 400);
+                return;
               }
             }
           }

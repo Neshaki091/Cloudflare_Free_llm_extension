@@ -500,68 +500,80 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
             // 7. KIỂM TRA TỰ ĐỘNG KÍCH HOẠT VÒNG LẶP TIẾP THEO (AUTONOMOUS AGENT LOOP)
             const MAX_AGENT_LOOP_STEPS = 3;
-            const readFileMatch = assistantMsg.content.match(/<action\s+type="read_file"\s+path="([^"]+)"(?:\s+purpose="([^"]*)")?>/i);
+            const readFileRegex = /<action\s+type="read_file"\s+path="([^"]+)"(?:\s+purpose="([^"]*)")?>/gi;
+            const matches: Array<{ path: string; purpose?: string }> = [];
+            let matchExec: RegExpExecArray | null;
 
-            if (readFileMatch && currentStep < MAX_AGENT_LOOP_STEPS && rootInfo) {
-              const rawPath = readFileMatch[1]!;
-              const cleanPath = sanitizeRelativePath(rawPath);
+            while ((matchExec = readFileRegex.exec(assistantMsg.content)) !== null) {
+              matches.push({ path: matchExec[1]!, purpose: matchExec[2] });
+            }
 
-              if (cleanPath) {
+            if (matches.length > 0 && currentStep < MAX_AGENT_LOOP_STEPS && rootInfo) {
+              const collectedOutlines: string[] = [];
+              const readPaths: string[] = [];
+
+              for (const m of matches) {
+                const cleanPath = sanitizeRelativePath(m.path);
+                if (!cleanPath) continue;
                 try {
                   const fileUri = vscode.Uri.joinPath(rootInfo.uri, cleanPath);
                   const bytes = await vscode.workspace.fs.readFile(fileUri);
                   const rawContent = new TextDecoder('utf-8').decode(bytes);
                   const lang = cleanPath.split('.').pop() || 'plaintext';
 
-                  // Trích xuất cấu trúc logic và nén message context
                   const logicResult = extractCodeLogic(cleanPath, rawContent, lang);
-                  const compressedLogic = compressMessageContext(logicResult.logicOutline, 3500, actualPromptText, lang);
+                  const compressedLogic = compressMessageContext(logicResult.logicOutline, 2500, actualPromptText, lang);
 
-                  // Bóc tách thinking trước đó
-                  let currentThought = 'Cần khảo sát cấu trúc logic của ' + cleanPath;
-                  const thinkMatch = assistantMsg.content.match(/<(?:think|thought)>([\s\S]*?)<\/(?:think|thought)>/i);
-                  if (thinkMatch && thinkMatch[1]) {
-                    currentThought = thinkMatch[1].trim().slice(0, 600);
-                  }
-
-                  const newThoughtHistory: AgentThoughtStep[] = [
-                    ...(loopOptions?.thoughtHistory || []),
-                    {
-                      step: currentStep + 1,
-                      thought: currentThought,
-                      actionTaken: `read_file(${cleanPath})`,
-                      logicSummary: `Đã trích xuất ${logicResult.symbolNames.length} hàm/lớp (${logicResult.symbolNames.slice(0, 6).join(', ')})`
-                    }
-                  ];
-
-                  this.view?.webview.postMessage({
-                    type: 'AGENT_LOOP_STATUS',
-                    step: currentStep + 1,
-                    maxSteps: MAX_AGENT_LOOP_STEPS,
-                    file: cleanPath,
-                    message: `🔄 [Agent Loop: Vòng ${currentStep + 1}/${MAX_AGENT_LOOP_STEPS}] Đã bóc tách logic của ${cleanPath}, đang suy nghĩ tiếp...`
-                  });
-
-                  const nextMessageContext = `--- LOGIC OUTLINE TỆP: ${cleanPath} (Ngôn ngữ: ${lang}, gồm các hàm/lớp: ${logicResult.symbolNames.join(', ')}) ---\n${compressedLogic}`;
-
-                  // Tự động kích hoạt lượt suy nghĩ tiếp theo của Agent Loop sau 400ms
-                  setTimeout(() => {
-                    this.handleUserPrompt(
-                      actualPromptText,
-                      actualMode,
-                      attachContext,
-                      {
-                        step: currentStep + 1,
-                        thoughtHistory: newThoughtHistory,
-                        messageContext: nextMessageContext
-                      }
-                    ).catch((e) => console.error('Lỗi thực thi Agent Loop:', e));
-                  }, 400);
-
-                  return;
+                  collectedOutlines.push(
+                    `--- LOGIC OUTLINE TỆP: ${cleanPath} (Ngôn ngữ: ${lang}, gồm các hàm/lớp: ${logicResult.symbolNames.join(', ')}) ---\n${compressedLogic}`
+                  );
+                  readPaths.push(cleanPath);
                 } catch (readErr: any) {
                   console.warn(`[NesCode] Không thể đọc tệp ${cleanPath} trong Agent Loop:`, readErr);
                 }
+              }
+
+              if (collectedOutlines.length > 0) {
+                let currentThought = 'Cần khảo sát logic của: ' + readPaths.join(', ');
+                const thinkMatch = assistantMsg.content.match(/<(?:think|thought)>([\s\S]*?)<\/(?:think|thought)>/i);
+                if (thinkMatch && thinkMatch[1]) {
+                  currentThought = thinkMatch[1].trim().slice(0, 600);
+                }
+
+                const newThoughtHistory: AgentThoughtStep[] = [
+                  ...(loopOptions?.thoughtHistory || []),
+                  {
+                    step: currentStep + 1,
+                    thought: currentThought,
+                    actionTaken: `read_files(${readPaths.join(', ')})`,
+                    logicSummary: `Đã nạp logic của ${readPaths.length} tệp (${readPaths.join(', ')})`
+                  }
+                ];
+
+                this.view?.webview.postMessage({
+                  type: 'AGENT_LOOP_STATUS',
+                  step: currentStep + 1,
+                  maxSteps: MAX_AGENT_LOOP_STEPS,
+                  file: readPaths.join(', '),
+                  message: `🔄 [Agent Loop: Vòng ${currentStep + 1}/${MAX_AGENT_LOOP_STEPS}] Đã bóc tách logic của ${readPaths.join(', ')}, đang suy nghĩ tiếp...`
+                });
+
+                const nextMessageContext = collectedOutlines.join('\n\n');
+
+                setTimeout(() => {
+                  this.handleUserPrompt(
+                    actualPromptText,
+                    actualMode,
+                    attachContext,
+                    {
+                      step: currentStep + 1,
+                      thoughtHistory: newThoughtHistory,
+                      messageContext: nextMessageContext
+                    }
+                  ).catch((e) => console.error('Lỗi thực thi Agent Loop:', e));
+                }, 400);
+
+                return;
               }
             }
           }

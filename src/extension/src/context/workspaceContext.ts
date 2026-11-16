@@ -333,25 +333,61 @@ export async function collectProjectContextFiles(
     }
   }
 
-  // 7. Nếu vẫn có ít hơn 3 file mã nguồn, tự động khám phá các file source code thực tế trong workspace
-  if (result.length < 3) {
-    try {
-      const commonCodeFiles = await vscode.workspace.findFiles(
-        '**/*.{py,ts,js,tsx,jsx,go,rs}',
-        '{**/node_modules/**,**/.git/**,**/dist/**,**/build/**,**/.venv/**,**/__pycache__/**}',
-        5
-      );
-      for (const fUri of commonCodeFiles) {
-        if (result.length >= 6) break;
-        const rel = getRelativePath(rootUri, fUri);
-        await tryReadFile(rel, 4000);
+  // 7. Tự động phân giải các module được import trong code đã nạp (Dependency/Import Crawling)
+  const importedModuleCandidates = new Set<string>();
+  for (const existingFile of result) {
+    if (existingFile.language === 'python' || existingFile.path.endsWith('.py')) {
+      // Regex trích xuất 'from xyz import ...' hoặc 'import xyz'
+      const pyImportRegex = /(?:from\s+([a-zA-Z0-9_.]+)\s+import\s+([a-zA-Z0-9_,\s]+)|import\s+([a-zA-Z0-9_.]+))/g;
+      let m: RegExpExecArray | null;
+      while ((m = pyImportRegex.exec(existingFile.content)) !== null) {
+        if (m[1]) {
+          const modPath = m[1].replace(/\./g, '/');
+          importedModuleCandidates.add(`${modPath}.py`);
+          if (m[2]) {
+            const subItems = m[2].split(',').map((s) => s.trim()).filter(Boolean);
+            for (const sub of subItems) {
+              importedModuleCandidates.add(`${modPath}/${sub}.py`);
+            }
+          }
+        } else if (m[3]) {
+          const modPath = m[3].replace(/\./g, '/');
+          importedModuleCandidates.add(`${modPath}.py`);
+        }
       }
-    } catch {
-      // Bỏ qua
+    } else if (['typescript', 'javascript'].includes(existingFile.language)) {
+      const jsImportRegex = /(?:from|import)\s+['"]([.\\/a-zA-Z0-9_-]+)['"]/g;
+      let m: RegExpExecArray | null;
+      while ((m = jsImportRegex.exec(existingFile.content)) !== null) {
+        const importPath = m[1]!.replace(/^\.\//, '');
+        importedModuleCandidates.add(`${importPath}.ts`);
+        importedModuleCandidates.add(`${importPath}.js`);
+      }
     }
   }
 
-  // 8. Nếu có active editor và chưa được đọc, thêm vào (tối đa 4000 ký tự)
+  for (const modCandidate of importedModuleCandidates) {
+    if (result.length >= 10) break;
+    await tryReadFile(modCandidate, 4000);
+  }
+
+  // 8. Tự động khám phá các file mã nguồn cốt lõi trong toàn bộ workspace (scanners/**, routes/**, templates/**, etc.)
+  try {
+    const commonCodeFiles = await vscode.workspace.findFiles(
+      '**/*.{py,ts,js,tsx,jsx,go,rs,html,css}',
+      '{**/node_modules/**,**/.git/**,**/dist/**,**/build/**,**/.venv/**,**/venv/**,**/__pycache__/**}',
+      15
+    );
+    for (const fUri of commonCodeFiles) {
+      if (result.length >= 10) break;
+      const rel = getRelativePath(rootUri, fUri);
+      await tryReadFile(rel, 3500);
+    }
+  } catch {
+    // Bỏ qua
+  }
+
+  // 9. Nếu có active editor và chưa được đọc, thêm vào (tối đa 4000 ký tự)
   if (activeDoc && activeDoc.uri.scheme === 'file') {
     const activeRelPath = getRelativePath(rootUri, activeDoc.uri);
     const activeBaseName = activeRelPath.split(/[\\/]/).pop() || '';
@@ -367,7 +403,7 @@ export async function collectProjectContextFiles(
     }
   }
 
-  // 9. Nén ngữ cảnh thông minh: phân bổ ngân sách, loại bỏ dòng trống thừa và bảo toàn code
+  // 10. Nén ngữ cảnh thông minh: phân bổ ngân sách, loại bỏ dòng trống thừa và bảo toàn code
   return compressContextFiles(result, 24000);
 }
 
